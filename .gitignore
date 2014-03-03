@@ -3,3 +3,4 @@ celeryconfig*
 *.pyc
 .idea*
 *.rdb
+output*
