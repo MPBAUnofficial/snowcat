@@ -14,8 +14,12 @@ class Categorizer(object):
     __metaclass__ = ABCMeta
 
     @classmethod
-    def gen_key(cls, user_auth_id):
-        return '{0}_{1}'.format(cls.__name__, user_auth_id)
+    def gen_key(cls, user_auth_id, key=''):
+        return '{0}_{1}{2}'.format(
+            cls.__name__,
+            user_auth_id,
+            '_' + str(key) if key else ''
+        )
 
     @classmethod
     @celeryapp.task
@@ -34,10 +38,9 @@ class Categorizer(object):
         # run the categorizer on all the sessions which has been changed.
         # if the categorizer is already running on the session, do nothing
         for auth_id in auth_ids:
-            lock_key = cls.gen_key(auth_id) + '_lock'
+            lock_key = cls.gen_key(auth_id, 'lock')
             # todo: is a lock TTL _really_ necessary?
             lock = redis_client.lock(lock_key, timeout=LOCK_EXPIRE)
-            print lock_key
 
             have_lock = lock.acquire(blocking=False)
             if have_lock:
@@ -49,23 +52,25 @@ class Categorizer(object):
     @staticmethod
     @celeryapp.task
     def unlock(lock_key):
+        print '======= UNLOCKING ========'
         lock = redis_client.lock(lock_key)
         try:
             lock.release()
         except ValueError:
-            pass
+            redis_client.delete(lock_key)
 
     @classmethod
     @abstractmethod
     def _run(cls, auth_id):
         """
-        Main task
-        Must NOT be called directly, call '<Categorizer>.add_data(...)' instead
+        Main task.
+        Must NOT be called directly, call '<Categorizer>.add_data(...)' instead.
         """
         pass
 
     @classmethod
     @celeryapp.task
     def close_session(cls, auth_user_id):
-        redis_client.delete(cls.gen_key(auth_user_id))
+        for item in redis_client.keys('{0}*'.format(cls.gen_key(auth_user_id))):
+            redis_client.delete(item)
 
