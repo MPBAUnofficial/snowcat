@@ -1,0 +1,5 @@
+local_settings*
+celeryconfig*
+*.pyc
+.idea*
+*.rdb
