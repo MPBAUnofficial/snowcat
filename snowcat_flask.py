@@ -18,7 +18,7 @@ def process_data():
             _d = data['data']
             for cat in all_categorizers:
                 cat.add_data.delay(cat, _d)
-        return 'ok'
+        return 'ok'  # Too lazy to handle errors. TODO: handle errors!!
 
 
 @app.route("/test")
