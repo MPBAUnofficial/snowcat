@@ -1,4 +1,5 @@
 local_settings*
+local_db_settings*
 celeryconfig*
 *.pyc
 .idea*
