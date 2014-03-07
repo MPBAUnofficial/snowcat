@@ -33,8 +33,3 @@ class RandomCategorizer(Categorizer):
                 time.sleep(random.random())
 
                 f.write('{0} :: {1}\n'.format(data['ts'], data['type']))
-
-        cls.unlock.delay(cls)
-
-
-
