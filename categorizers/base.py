@@ -44,6 +44,7 @@ class Categorizer(object):
 
             have_lock = lock.acquire(blocking=False)
             if have_lock:
+                print '======= LAUNCHING {} ======='.format(lock_key)
                 cls._run.apply_async(
                     (cls, auth_id),
                     link=cls.unlock.si(lock_key)
@@ -52,7 +53,7 @@ class Categorizer(object):
     @staticmethod
     @celeryapp.task
     def unlock(lock_key):
-        print '======= UNLOCKING ========'
+        print '======= UNLOCKING {} ========'.format(lock_key)
         lock = redis_client.lock(lock_key)
         try:
             lock.release()
