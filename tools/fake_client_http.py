@@ -5,6 +5,7 @@ import sys
 import random
 import requests
 import psycopg2
+from datetime import datetime
 
 from local_db_settings import DB_SETTINGS
 
@@ -39,8 +40,12 @@ def run_fake_client(auth_user_id):
         with conn.cursor() as cur:
             cur.execute(build_query(auth_user_id))
 
+            # convert python's datetime to timestamp
+            dt_to_ts = lambda dt: \
+                time.mktime(dt.timetuple()) + dt.microsecond / 1E6
+
             data_all = [
-                dict(id=t[0], auth_user_id=t[1], ts=t[2].isoformat(), type=t[3],
+                dict(id=t[0], auth_user_id=t[1], ts=dt_to_ts(t[2]), type=t[3],
                      x=t[4], y=t[5], z=t[6], m=t[7], track_id=t[8], sensor=t[9])
                 for t in cur.fetchall()
             ]
