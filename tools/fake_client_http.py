@@ -15,6 +15,11 @@ def build_query(auth_user_id):
            ' order by ts'.format(auth_user_id)
 
 
+def print_track(points_list):
+    for p in points_list:
+        print 'POINT x: {0}; y: {1}; z:{2};'.format(p['x'], p['y'], p['z'])
+
+
 def run_fake_client(auth_user_id):
     # time.sleep(0.5)
 
@@ -63,7 +68,8 @@ def run_fake_client(auth_user_id):
         }
 
         requests.post('http://localhost:5000/', data=payload)
-        # print payload
+        print_track(data)
+
         time.sleep(0.3)
 
 
