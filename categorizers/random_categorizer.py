@@ -6,7 +6,7 @@ import redis
 import random
 
 from .celery import celeryapp
-from .base import Categorizer
+from .base import Categorizer, singleton_task
 
 
 class RandomCategorizer(Categorizer):
@@ -19,7 +19,8 @@ class RandomCategorizer(Categorizer):
 
     @classmethod
     @celeryapp.task
-    def _run(cls, auth_id):
+    @singleton_task
+    def run(cls, auth_id):
         redis_client = redis.StrictRedis()
 
         with open('output.txt', 'wb') as f:

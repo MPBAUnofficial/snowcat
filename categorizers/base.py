@@ -1,13 +1,42 @@
 from __future__ import absolute_import
 from abc import ABCMeta, abstractmethod
 from celery import chain
+from celery.utils.log import get_task_logger
+from functools import wraps
 from .celery import celeryapp
 
 import redis
 import pickle
 
+logger = get_task_logger(__name__)
+
 redis_client = redis.StrictRedis()
 LOCK_EXPIRE = 60 * 10
+
+
+def singleton_task(func):
+    """
+    Decorator to make the task a pseudo-singleton.
+    Enables a maximum of one task to be executed for each session
+    for each categorizer (i.e. there can't be more than one RandomCategorizer
+    running on session with auth_user_id 42).
+    """
+    @wraps(func)
+    def _inner(cls, auth_id, *args, **kwargs):
+        # try to acquire lock
+        lock_key = cls.gen_key(auth_id, 'lock')
+        logger.info('TRYING TO ACQUIRE LOCK {0}'.format(lock_key))
+        lock = redis_client.lock(lock_key, timeout=LOCK_EXPIRE)
+        have_lock = lock.acquire(blocking=False)
+        logger.info('Acquired {0}? {1}'.format(lock_key, have_lock))
+
+        if have_lock:
+            try:
+                func(cls, auth_id, *args, **kwargs)
+            finally:
+                logger.info('RELEASING LOCK {0}'.format(lock_key))
+                lock.release()
+    return _inner
 
 
 class Categorizer(object):
@@ -38,34 +67,15 @@ class Categorizer(object):
         # run the categorizer on all the sessions which has been changed.
         # if the categorizer is already running on the session, do nothing
         for auth_id in auth_ids:
-            lock_key = cls.gen_key(auth_id, 'lock')
-            # todo: is a lock TTL _really_ necessary?
-            lock = redis_client.lock(lock_key, timeout=LOCK_EXPIRE)
-
-            have_lock = lock.acquire(blocking=False)
-            if have_lock:
-                print '======= LAUNCHING {} ======='.format(lock_key)
-                cls._run.apply_async(
-                    (cls, auth_id),
-                    link=cls.unlock.si(lock_key)
-                )
-
-    @staticmethod
-    @celeryapp.task
-    def unlock(lock_key):
-        print '======= UNLOCKING {} ========'.format(lock_key)
-        lock = redis_client.lock(lock_key)
-        try:
-            lock.release()
-        except ValueError:
-            redis_client.delete(lock_key)
+            cls.run.delay(cls, auth_id)
 
     @classmethod
+    @singleton_task
     @abstractmethod
-    def _run(cls, auth_id):
+    def run(cls, auth_id):
         """
         Main task.
-        Must NOT be called directly, call '<Categorizer>.add_data(...)' instead.
+        Should NOT be called directly, call '<Categorizer>.add_data' instead.
         """
         pass
 
