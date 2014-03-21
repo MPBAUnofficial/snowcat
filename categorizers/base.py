@@ -26,6 +26,7 @@ def singleton_task(func):
         # try to acquire lock
         lock_key = cls.gen_key(auth_id, 'lock')
         logger.info('TRYING TO ACQUIRE LOCK {0}'.format(lock_key))
+
         lock = redis_client.lock(lock_key, timeout=LOCK_EXPIRE)
         have_lock = lock.acquire(blocking=False)
         logger.info('Acquired {0}? {1}'.format(lock_key, have_lock))
@@ -53,6 +54,11 @@ class Categorizer(object):
     @classmethod
     @celeryapp.task
     def add_data(cls, data):
+        # REMEMBER: point types
+        # 1: Shared location (should not be here)
+        # 2: normal point
+        # 3: track start
+        # 4: track end
         if type(data) == dict:
             data = [data]
 
@@ -60,6 +66,7 @@ class Categorizer(object):
         # assume data is sorted by timestamp
         auth_ids = set()
         for d in data:
+            # todo: split data when more tracks are provided in the same request
             auth_id = d['auth_user_id']
             auth_ids.add(auth_id)
             redis_client.rpush(cls.gen_key(auth_id), pickle.dumps(d))
