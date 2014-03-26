@@ -25,10 +25,9 @@ class StateCategorizer(Categorizer):
             pickle.loads(item) for item in redis_client.lrange(buf_key, 0, -1)
         ]
 
-        last_index = redis_client.get(cls.gen_key(auth_id, 'curr_idx')) or 0
-
+        last_idx = int(redis_client.get(cls.gen_key(auth_id, 'curr_idx')) or 0)
         # STEP 1
-        for i in range(last_index, len(buf)):
+        for i in range(last_idx, len(buf)):
             if i == 0:
                 continue
             item = buf[i]
@@ -59,8 +58,6 @@ class StateCategorizer(Categorizer):
                 )
 
         # STEP 2
-        
-
         # todo: salvare il buffer in redis
 
         current_index_key = cls.gen_key(auth_id, 'curr_idx')
