@@ -55,7 +55,7 @@ def run_fake_client(auth_user_id):
                 for t in cur.fetchall()
             ]
 
-    block_length = 5
+    block_length = 10
     for i in range(0, len(data_all), block_length):
         # send the data three elements at a time,
         # in this way we'll test the system in a better way
@@ -70,7 +70,7 @@ def run_fake_client(auth_user_id):
         requests.post('http://localhost:5000/', data=payload)
         print_track(data)
 
-        time.sleep(0.3)
+        time.sleep(0.5)
 
 
 if __name__ == '__main__':
