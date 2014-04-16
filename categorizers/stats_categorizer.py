@@ -32,24 +32,28 @@ class StatsCategorizer(Categorizer):
         last_idx = int(redis_client.get(cls.gen_key(auth_id, 'curr_idx')) or 0)
         # STEP 1
         for i in range(last_idx, len(buf)):
-            if i == 0:
+            try:
+                prev_item = buf[i-1]
+                item = buf[i]
+                suc_item = buf[i+1]
+            except IndexError:
                 continue
-            item = buf[i]
-            prev_item = buf[i-1]
 
-            distance = distance_3d(
+            #compute speed: previous and successive points are considered
+            distance_prev = distance_3d(
                 item['x'], item['y'], item['z'],
                 prev_item['x'], prev_item['y'], prev_item['z']
             )
+            distance_suc = distance_3d(
+                item['x'], item['y'], item['z'],
+                suc_item['x'], suc_item['y'], suc_item['z']
+            )
 
-            time_delta = abs(item['ts'] - prev_item['ts'])
+            time_delta = abs(suc_item['ts'] - prev_item['ts'])
 
-            speed = (distance / time_delta) * 3.6
+            speed = (distance_prev+distance_suc) / time_delta
 
-            error_delta = item['m'] - prev_item['m']
-
-            out_dict = {'speed' : str(speed),
-                        'error_delta' : str(error_delta)}
+            out_dict = {'speed' : str(speed)}
 
             with psycopg2.connect(**DB_SETTINGS) as conn:
                 psycopg2.extras.register_hstore(conn)
