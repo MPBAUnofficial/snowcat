@@ -5,7 +5,7 @@ import pickle
 from celery.utils.log import get_task_logger
 
 from .base import Categorizer, singleton_task, celeryapp
-from .utils import m2_distance, m3_distance
+from .utils import distance_3d
 
 logger = get_task_logger(__name__)
 

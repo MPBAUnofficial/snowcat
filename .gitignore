@@ -5,3 +5,4 @@ celeryconfig*
 .idea*
 *.rdb
 output*
+*~

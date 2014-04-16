@@ -1,11 +1,12 @@
-from random_categorizer import RandomCategorizer
-from garbage_detector import GarbagePointCategorizer
-from state_categorizer import StateCategorizer
+#from random_categorizer import RandomCategorizer
+#from garbage_detector import GarbagePointCategorizer
+from stats_categorizer import StatsCategorizer
+#from state_categorizer import StateCategorizer
 
 all_categorizers = [
-    RandomCategorizer,  # todo: remove me! :D
-    GarbagePointCategorizer,
-    StateCategorizer
+#    GarbagePointCategorizer,
+#    StateCategorizer
+    StatsCategorizer
  ]
 
 __all__ = all_categorizers

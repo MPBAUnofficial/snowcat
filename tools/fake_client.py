@@ -11,13 +11,14 @@ from local_db_settings import DB_SETTINGS
 
 
 def build_query(auth_user_id):
-    return 'select * from user_location_track  where auth_user_id = {0}' \
+    return 'select * from skilo_sc.user_location_track  where auth_user_id = {0}' \
            ' order by ts'.format(auth_user_id)
 
 
 def print_track(points_list):
     for p in points_list:
-        print 'POINT x: {0}; y: {1}; z:{2};'.format(p['x'], p['y'], p['z'])
+        print 'POINT {0} x: {1}; y: {2}; z:{3};'.format(
+            p['id'],p['x'], p['y'], p['z'])
 
 
 def run_fake_client(auth_user_id):

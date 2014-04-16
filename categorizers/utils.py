@@ -1,7 +1,7 @@
 import utm
 import numpy
 
-def m2_distance(lon1, lat1, lon2, lat2):
+def distance_2d(lon1, lat1, lon2, lat2):
     ym1, xm1, _, _ = utm.from_latlon(lat1, lon1)
     ym2, xm2, _, _ = utm.from_latlon(lat2, lon2)
 
@@ -12,7 +12,7 @@ def m2_distance(lon1, lat1, lon2, lat2):
     return dist
 
 
-def m3_distance(lon1, lat1, h1, lon2, lat2, h2):
+def distance_3d(lon1, lat1, h1, lon2, lat2, h2):
     ym1, xm1, _, _ = utm.from_latlon(lat1, lon1)
     ym2, xm2, _, _ = utm.from_latlon(lat2, lon2)
 
