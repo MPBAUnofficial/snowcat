@@ -1,9 +1,9 @@
 from __future__ import absolute_import
 from abc import ABCMeta, abstractmethod
-from celery import chain
 from celery.utils.log import get_task_logger
 from functools import wraps
-from .celery import celeryapp
+from . import all_categorizers
+from .celeryapp import celeryapp
 
 import redis
 import pickle
@@ -40,41 +40,56 @@ def singleton_task(func):
     return _inner
 
 
+@celeryapp.task
+def add_data(data):
+    if type(data) == dict:
+        data = [data]
+
+    r = redis.StrictRedis()
+
+    auth_ids = set()
+    for d in data:
+        # todo: split data when more tracks are provided in the same request
+        auth_id = d['auth_user_id']
+        auth_ids.add(auth_id)
+        redis_client.lpush('Points_{0}'.format(auth_id), pickle.dumps(d))
+
+    root_categorizers = r.smembers('root_categorizers')
+
+    for cat in all_categorizers:
+        if cat.ID in root_categorizers:
+            for auth_id in auth_ids:
+                cat.run.delay(cat, auth_id)
+
+
 class Categorizer(object):
     __metaclass__ = ABCMeta
+
+    ID = ''
+    DEPENDENCIES = []
+    BACK_OFFSET = 0  # negative values means 'infinite'
+    # DEPSCHECK_FREQUENCY = 1000  # check for dependencies every N operations
+    # GC_FREQUENCY = 0  # same as above, 0 = never call gc
 
     @classmethod
     def gen_key(cls, user_auth_id, key=''):
         return '{0}_{1}{2}'.format(
-            cls.__name__,
+            cls.ID or cls.__name__,
             user_auth_id,
             '_' + str(key) if key else ''
         )
 
     @classmethod
-    @celeryapp.task
-    def add_data(cls, data):
-        # REMEMBER: point types
-        # 1: Shared location (should not be here)
-        # 2: normal point
-        # 3: track start
-        # 4: track end
-        if type(data) == dict:
-            data = [data]
+    def children(cls):
+        return redis_client.smembers('{0}_children'.format(cls.ID))
 
-        # add data to buffer
-        # assume data is sorted by timestamp
-        auth_ids = set()
-        for d in data:
-            # todo: split data when more tracks are provided in the same request
-            auth_id = d['auth_user_id']
-            auth_ids.add(auth_id)
-            redis_client.rpush(cls.gen_key(auth_id), pickle.dumps(d))
+    @classmethod
+    def call_children(cls, auth_id):
+        children = cls.children()
 
-        # run the categorizer on all the sessions which has been changed.
-        # if the categorizer is already running on the session, do nothing
-        for auth_id in auth_ids:
-            cls.run.delay(cls, auth_id)
+        for cat in all_categorizers:
+            if cat.ID in children:
+                cat.run.delay(auth_id)
 
     @classmethod
     @singleton_task
@@ -91,4 +106,5 @@ class Categorizer(object):
     def close_session(cls, auth_user_id):
         for item in redis_client.keys('{0}*'.format(cls.gen_key(auth_user_id))):
             redis_client.delete(item)
+
 

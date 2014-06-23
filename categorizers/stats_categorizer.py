@@ -7,14 +7,18 @@ import psycopg2.extras
 from celery.utils.log import get_task_logger
 
 from .base import Categorizer, singleton_task, celeryapp
-from .utils import distance_3d
+from .utils import distance_3d, redis_mget, redis_mset, RedisList
 
-from .local_db_settings import DB_SETTINGS
+from .local_settings import DATABASES
 
 logger = get_task_logger(__name__)
 
 
 class StatsCategorizer(Categorizer):
+    ID = 'StatsCategorizer'
+    BACK_OFFSET = 2
+    DEPENDENCIES = []
+
     BUFFER_TIMEDELTA = 60 * 5  # s
     BUFFER_MIN_SIZE = 10
 
@@ -22,21 +26,30 @@ class StatsCategorizer(Categorizer):
     @celeryapp.task
     @singleton_task
     def run(cls, auth_id):
-        redis_client = redis.StrictRedis()
+        rl = RedisList()
 
-        buf_key = cls.gen_key(auth_id)
-        buf = [
-            pickle.loads(item) for item in redis_client.lrange(buf_key, 0, -1)
-        ]
+        idx = redis_mget(cls.gen_key(auth_id), ('idx', 0))
+        prev_item = None
+        item = None
 
-        last_idx = int(redis_client.get(cls.gen_key(auth_id, 'curr_idx')) or 0)
-        # STEP 1
-        for i in range(last_idx, len(buf)):
-            try:
-                prev_item = buf[i-1]
-                item = buf[i]
-                suc_item = buf[i+1]
-            except IndexError:
+        while True:
+            raw_data = rl.lindex(cls.gen_key(auth_id), idx)
+
+            if raw_data is None:
+                break
+
+            if (idx % 100) == 0 or raw_data is None:
+                redis_mset(cls.gen_key(auth_id), idx=max(0, idx-2))
+                cls.call_children(auth_id)
+
+            suc_item = pickle.loads(raw_data)
+
+            if item is None:
+                item = suc_item
+                continue
+            if prev_item is None:
+                prev_item = item
+                item = suc_item
                 continue
 
             #compute speed: previous and successive points are considered
@@ -53,12 +66,13 @@ class StatsCategorizer(Categorizer):
 
             speed = (distance_prev+distance_suc) / time_delta
 
-            out_dict = {'speed' : str(speed)}
+            out_dict = {'speed': str(speed)}
+            redis_mset(cls.gen_key(auth_id), out=out_dict)
 
-            with psycopg2.connect(**DB_SETTINGS) as conn:
-                psycopg2.extras.register_hstore(conn)
-                with conn.cursor() as cur:
-                    cur.execute("UPDATE skilo_sc.user_location_track \
-                                 SET categorizers = categorizers || %s \
-                                 WHERE id=%s",[out_dict,item['id']])
 
+            # with psycopg2.connect(**DB_SETTINGS) as conn:
+            #     psycopg2.extras.register_hstore(conn)
+            #     with conn.cursor() as cur:
+            #         cur.execute("UPDATE skilo_sc.user_location_track \
+            #                      SET categorizers = categorizers || %s \
+            #                      WHERE id=%s",[out_dict,item['id']])
