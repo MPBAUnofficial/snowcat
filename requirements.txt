@@ -1,5 +1,6 @@
+Flask
 celery
-redis
-flask
-utm
 numpy
+redis
+utm
+requests

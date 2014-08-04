@@ -6,9 +6,7 @@ import random
 import requests
 import psycopg2
 from datetime import datetime
-
-from local_db_settings import DB_SETTINGS
-
+from local_settings import DB_SETTINGS
 
 def build_query(auth_user_id):
     return 'select * from skilo_sc.user_location_track  where auth_user_id = {0}' \
