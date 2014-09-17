@@ -1,8 +1,7 @@
-local_settings*
-local_db_settings*
-celeryconfig*
-*.pyc
-.idea*
+build/
+dist/
+*.egg-info/
 *.rdb
-output*
+*.pyc
 *~
+.idea/

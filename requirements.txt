@@ -1,5 +1,0 @@
-celery
-redis
-flask
-utm
-numpy
