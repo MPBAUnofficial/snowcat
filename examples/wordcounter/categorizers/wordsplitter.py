@@ -6,10 +6,9 @@ class WordSplitter(LoopCategorizer):
     name = 'WordSplitter'
 
     DEPENDENCIES = []
-    CHECKPOINT_FREQUENCY = 1  # a second
+    CHECKPOINT_FREQUENCY = 10  # ten seconds
     QUEUE = 'Stream'
     DEFAULT_S = {'buf': []}
-    PREFETCH = False
 
     rl = RedisList()
 

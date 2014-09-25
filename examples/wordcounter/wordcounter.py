@@ -1,8 +1,6 @@
 from flask import Flask, request
 from snowcat.core import Topology
 from celeryapp import celeryapp
-from categorizers.wordcounter import WordCounter
-from categorizers.wordsplitter import WordSplitter
 
 app = Flask(__name__)
 t = None
@@ -20,9 +18,9 @@ def process_data():
 
 def run_snowcat():
     global t
-    t = Topology('wordcounter', celeryapp, [WordSplitter, WordCounter])
+    t = Topology('wordcounter', celeryapp)
 
-    errors = t.init_topology()
+    errors = t.errors()
 
     if errors:
         print 'The following errors were encountered when trying to start SnowCat:'

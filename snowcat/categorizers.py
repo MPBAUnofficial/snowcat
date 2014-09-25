@@ -8,6 +8,26 @@ import time
 redis_client = redis.StrictRedis()
 
 
+def get_all_categorizers(celeryapp):
+    res = set()
+
+    for cat in celeryapp.tasks.itervalues():
+        if isinstance(cat, Categorizer):
+            res.add(cat)
+
+    return list(res)
+
+
+def get_root_categorizers(celeryapp):
+    res = set()
+
+    for cat in get_all_categorizers(celeryapp):
+        if cat.DEPENDENCIES == []:
+            res.add(cat)
+
+    return list(res)
+
+
 class Categorizer(Task):
     abstract = True
     name = 'Categorizer'
@@ -35,24 +55,25 @@ class Categorizer(Task):
             ':' + str(key) if key else ''
         )
 
+    @property
     def children(self):
-        res = redis_client.smembers('{0}_children'.format(self.name))
-        if res is None:
-            return []
-        return res
+        if not hasattr(self, '_children') or self._children is None:
+            self._children = set()
+
+            for cat in get_all_categorizers(self.app):
+                if self.name in cat.DEPENDENCIES:
+                    self._children.add(cat.name)
+
+        return list(self._children)
 
     def call_children(self, auth_id):
         """ Call all the tasks which depend on this one.
         """
-        children = self.children()
+        children = self.children
 
         for cat in children:
             task = self.app.tasks[cat]
             task.run_if_not_already_running(auth_id)
-
-        # for cat in self.topology.categorizers:
-        #     if cat.name in children:
-        #         cat.run_if_not_already_running(auth_id)
 
     @singleton_task
     def run(self, user):
@@ -113,7 +134,8 @@ class LoopCategorizer(Categorizer):
                 item = self.rlindex_buffered(
                     '{0}:{1}'.format(self.QUEUE, user),
                     self.s.idx,
-                    buf
+                    buf,
+                    rl
                 )
             else:
                 item = rl.lindex(
@@ -126,6 +148,7 @@ class LoopCategorizer(Categorizer):
             if item is None or time_since_last_save > self.CHECKPOINT_FREQUENCY:
                 self.s.save()
                 self.call_children(user)
+                self.s.last_save = time.time()
 
             if item is None:
                 break
@@ -148,11 +171,11 @@ class LoopCategorizer(Categorizer):
         self.BUFFER_LENGTH defines how long will be the window of buffered
         values.
         """
-        if rl is None:
-            rl = RedisList()
-
         res = buf.get(key, {}).get(index, None)
         if res is None:
+            if rl is None:
+                rl = RedisList()
+
             index_range = range(index - self.BUFFER_LENGTH,
                                 index + self.BUFFER_LENGTH)
             buf[key] = dict(zip(index_range, rl.mlindex(key, *index_range)))

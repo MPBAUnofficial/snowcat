@@ -7,10 +7,9 @@ class WordCounter(LoopCategorizer):
     name = 'WordCounter'
 
     DEPENDENCIES = ['WordSplitter']
-    CHECKPOINT_FREQUENCY = 30  # half a minute
+    CHECKPOINT_FREQUENCY = 10  # ten seconds
     QUEUE = 'Words'
     DEFAULT_S = {}
-    PREFETCH = False
 
     r = redis.StrictRedis()
 

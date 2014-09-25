@@ -2,7 +2,7 @@ from functools import wraps
 import redis
 
 redis_client = redis.StrictRedis()
-LOCK_EXPIRE = 60 * 10  # 10 minutes
+LOCK_EXPIRE = 60 * 60  # 1 hour
 
 
 def singleton_task(func):
@@ -22,11 +22,13 @@ def singleton_task(func):
         lock = redis_client.lock(lock_key, timeout=LOCK_EXPIRE)
         have_lock = lock.acquire(blocking=False)
 
-        if have_lock:
-            try:
-                func(self, auth_id, *args, **kwargs)
-            finally:
-                lock.release()
-        return True
+        if not have_lock:
+            return False
+
+        try:
+            func(self, auth_id, *args, **kwargs)
+        finally:
+            lock.release()
+            return True
 
     return _inner
