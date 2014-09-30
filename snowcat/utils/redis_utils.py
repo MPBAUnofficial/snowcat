@@ -315,8 +315,8 @@ class RedisList(object):
         script = self.scripts['lpop']
         return script(keys=[key], args=[])
 
-    def killfirstn(self, key, n):
-        """ Remove first n elements from a list leaving offset unchanged.
+    def killrange(self, key, start, end):
+        """ Remove first n elements from a list leaving offset and length unchanged.
         This way, every element will mantain the same index, and the first n
         elements will just disappear.
 
@@ -324,31 +324,35 @@ class RedisList(object):
         """
         lua = """
         local key = KEYS[1]
-        local offset = tonumber(redis.call('HGET', key, '__offset__'))
-        --if not offset then
-        --    offset = 0
-        --    redis.call('HSET', key, '__offset__', 0)
-        --end
+        local start = ARGV[1]
+        local stop = ARGV[2]
 
-        -- check n
+        local offset = tonumber(redis.call('HGET', key, '__offset__'))
         local list_length = tonumber(redis.call('HGET', key, '__length__'))
-        local n = tonumber(ARGV[1])
-        if n > list_length then
-            n = list_length
-        elseif n < 0 then
-            n = 0
+
+        -- check stop
+        if stop > list_length then
+            stop = list_length
+        elseif stop < 0 then
+            stop = list_length - stop
+            if stop < 0 then
+                stop = 0
+            end
         end
 
-        -- adjust offset
-        redis.call('HSET', key, '__offset__', offset + n)
-
-        -- adjust length
-        if not list_length then return 0 end
-        redis.call('HSET', key, '__length__', list_length - n)
+        -- check start
+        if start > list_length then
+            start = 0
+        elseif start < 0 then
+            start = list_length - start
+            if start < 0 then
+                start = 0
+            end
+        end
 
         -- remove first n elements
         local args_list = {}
-        for i = 0, n do
+        for i = start, stop do
             args_list[i] = i + offset
         end
 
@@ -358,7 +362,7 @@ class RedisList(object):
         if not 'killfirstn' in self.scripts:
             self.scripts['killfirstn'] = self.redis_client.register_script(lua)
         script = self.scripts['killfirstn']
-        return script(keys=[key], args=[n])
+        return script(keys=[key], args=[start, end])
 
 
 def test_redis_list(redis_client, n):

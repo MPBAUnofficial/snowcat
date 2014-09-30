@@ -2,7 +2,7 @@ import unittest
 
 from nose.tools import assert_equal, assert_true, assert_false, assert_is_not_none
 
-from wordcounter.utils.redis_utils import RedisList, redis_mget, redis_mset
+from snowcat.utils.redis_utils import RedisList, redis_mget, redis_mset
 
 
 def test_mget_mset():
@@ -129,7 +129,7 @@ class RedisListTest(unittest.TestCase):
 
         assert_equal(rl.llen(self.L), 1)
 
-    def test_killfirstn(self):
+    def test_killrange(self):
         rl = RedisList()
         rl.delete(self.L)
 
@@ -138,5 +138,8 @@ class RedisListTest(unittest.TestCase):
 
         assert_is_not_none(rl.llen(self.L))
 
-        rl.killfirstn(self.L, 5)
+        rl.killrange(self.L, 0, 5)
+
+        res = rl.lrange(self.L, 0, -1)
+        assert_equal(res, range(5, 20))
         raise ValueError(rl.lrange(self.L, 0, -1))
