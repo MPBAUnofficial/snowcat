@@ -1,5 +1,6 @@
 import redis
 from snowcat.categorizers import LoopCategorizer
+from snowcat.utils.redis_utils import RedisList
 import datetime
 
 
@@ -8,7 +9,7 @@ class WordCounter(LoopCategorizer):
 
     DEPENDENCIES = ['WordSplitter']
     CHECKPOINT_FREQUENCY = 10  # ten seconds
-    QUEUE = 'Words'
+    INPUT_QUEUE = 'Words'
     DEFAULT_S = {}
 
     r = redis.StrictRedis()
@@ -25,3 +26,7 @@ class WordCounter(LoopCategorizer):
                 f.write(str(datetime.datetime.now()))
 
         self.r.zincrby('WordCount:{0}'.format(user), val, 1)
+
+    def checkpoint(self, user):
+        rl = RedisList()
+        rl.mark('Words:{0}'.format(user), self.name, self.s.idx)
