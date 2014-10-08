@@ -92,7 +92,7 @@ class Categorizer(Task):
 
     def close_session(self, auth_user_id):
         for item in redis_client.keys(
-                '{0}*'.format(self.gen_key(auth_user_id))):
+                '{0}:*'.format(self.gen_key(auth_user_id))):
             redis_client.delete(item)
 
 
@@ -101,7 +101,8 @@ class LoopCategorizer(Categorizer):
 
     s = None
 
-    QUEUE = None
+    INPUT_QUEUE = None
+    OUTPUT_QUEUE = None
     CHECKPOINT_FREQUENCY = 60  # a minute
     DEFAULT_S = {}
 
@@ -121,6 +122,9 @@ class LoopCategorizer(Categorizer):
 
         rl = RedisList()
 
+        for cat in self.children:
+            rl.mark('{0}:{1}'.format(self.OUTPUT_QUEUE, user), cat)
+
         self.initialize()
 
         buf = {}
@@ -132,23 +136,24 @@ class LoopCategorizer(Categorizer):
                 # try to optimize redis latency by fetching multiple data and
                 # caching it
                 item = self.rlindex_buffered(
-                    '{0}:{1}'.format(self.QUEUE, user),
+                    '{0}:{1}'.format(self.INPUT_QUEUE, user),
                     self.s.idx,
                     buf,
                     rl
                 )
             else:
                 item = rl.lindex(
-                    '{0}:{1}'.format(self.QUEUE, user),
+                    '{0}:{1}'.format(self.INPUT_QUEUE, user),
                     self.s.idx
                 )
 
             time_since_last_save = time.time() - self.s.last_save
 
             if item is None or time_since_last_save > self.CHECKPOINT_FREQUENCY:
-                self.s.save()
                 self.call_children(user)
+                self.checkpoint(user)
                 self.s.last_save = time.time()
+                self.s.save()
 
             if item is None:
                 break
@@ -185,6 +190,10 @@ class LoopCategorizer(Categorizer):
 
     @abstractmethod
     def process(self, user, item):
+        pass
+
+    @abstractmethod
+    def checkpoint(self, user):
         pass
 
     def initialize(self):

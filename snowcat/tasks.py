@@ -14,9 +14,12 @@ class AddData(Task):
         r = redis.StrictRedis()
 
         rl = RedisList(redis_client=r)
-        rl.rpush('{0}:{1}'.format(redis_queue, user), *data)
-
         root_categorizers = get_root_categorizers(self.app)
+
+        for cat in root_categorizers:
+            rl.mark('Stream:{0}'.format(user), cat.name)
+
+        rl.rpush('{0}:{1}'.format(redis_queue, user), *data)
 
         for cat in root_categorizers:
             cat.run_if_not_already_running(user)
