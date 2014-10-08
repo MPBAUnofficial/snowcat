@@ -315,54 +315,91 @@ class RedisList(object):
         script = self.scripts['lpop']
         return script(keys=[key], args=[])
 
-    def killrange(self, key, start, end):
-        """ Remove first n elements from a list leaving offset and length unchanged.
-        This way, every element will mantain the same index, and the first n
-        elements will just disappear.
-
-        Be careful when using this method: you might mess up everything
+    def mark(self, key, name, idx=None):
+        """ Set the index of the first element needed by an entity.
+        When there are elements that are no longer needed by any entity, they
+        get silently removed (leaving length and offset unchanged).
+        If idx is set to None, leave the mark unchanged if it already exists,
+        or set it to 0 otherwise.
         """
         lua = """
         local key = KEYS[1]
-        local start = ARGV[1]
-        local stop = ARGV[2]
+        local hashset_key = key .. ":marks"
+        local name = ARGV[1]
+        local idx = tonumber(ARGV[2])
+
+        local overwrite = true
+        if not idx then
+            overwrite = false
+            idx = 0
+        end
+
+        local list_length = tonumber(redis.call('HGET', key, '__length__'))
+        if not list_length then
+            redis.call('HSET', key, '__length__', 0)
+            list_length = 0
+        end
 
         local offset = tonumber(redis.call('HGET', key, '__offset__'))
-        local list_length = tonumber(redis.call('HGET', key, '__length__'))
+        if not offset then
+            redis.call('HSET', key, '__offset__', 0)
+            offset = 0
+        end
 
-        -- check stop
-        if stop > list_length then
-            stop = list_length
-        elseif stop < 0 then
-            stop = list_length - stop
-            if stop < 0 then
-                stop = 0
+        -- check idx
+        if idx > list_length then
+            idx = list_length
+        elseif idx < 0 then
+            idx = list_length + idx
+            if idx < 0 then
+                idx = 0
             end
         end
 
-        -- check start
-        if start > list_length then
-            start = 0
-        elseif start < 0 then
-            start = list_length - start
-            if start < 0 then
-                start = 0
+        -- set the mark
+        if overwrite then
+            redis.call('HSET', hashset_key, name, idx)
+        elseif redis.call('HEXISTS', hashset_key, name) == 0 then
+            redis.call('HSET', hashset_key, name, 0)
+        end
+
+        -- find the minimum marked index and return it
+        local min_idx = list_length
+        local cursor = 0
+        repeat
+            local res = redis.call("HSCAN", hashset_key, cursor)
+            cursor = tonumber(res[1])
+            local items = res[2]
+
+            for i=2, #items, 2 do
+                local val = tonumber(items[i])
+                if val < min_idx then
+                    min_idx = val
+                end
             end
-        end
+        until cursor == 0
 
-        -- remove first n elements
-        local args_list = {}
-        for i = start, stop do
-            args_list[i] = i + offset
-        end
-
-        redis.call('HDEL', key, args_list)
-        return n
+        return min_idx
         """
-        if not 'killfirstn' in self.scripts:
-            self.scripts['killfirstn'] = self.redis_client.register_script(lua)
-        script = self.scripts['killfirstn']
-        return script(keys=[key], args=[start, end])
+        if not 'min_idx' in self.scripts:
+            self.scripts['min_idx'] = self.redis_client.register_script(lua)
+        script = self.scripts['min_idx']
+
+        # an ugly trick in order to avoid redis' EVAL limitation about
+        # non-deterministic write actions (since HSCAN is considered a
+        # non-deterministic command).
+        min_idx = script(keys=[key], args=[name, idx])
+
+        # calling hdel with large ranges is costly, so try to minimize it
+        # avoiding to delete already-deleted items
+        if min_idx > 0:
+            start = self.redis_client.hget(key, '__min_idx__')
+            start = 0 if start is None else int(start)
+            r = range(start, min_idx)
+            if r:
+                self.redis_client.hdel(key, *r)
+                self.redis_client.hset(key, '__min_idx__', min_idx)
+        return min_idx
 
 
 def test_redis_list(redis_client, n):

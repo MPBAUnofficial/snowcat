@@ -129,17 +129,17 @@ class RedisListTest(unittest.TestCase):
 
         assert_equal(rl.llen(self.L), 1)
 
-    def test_killrange(self):
+    def test_mark(self):
         rl = RedisList()
         rl.delete(self.L)
 
         rl.rpush(self.L, *range(20))
-        rl.lpop(self.L)
+        rl.mark(self.L, 'foo', 0)
+        assert_equal(rl.lrange(self.L, 0, -1), map(str, range(20)))
 
-        assert_is_not_none(rl.llen(self.L))
+        rl.mark(self.L, 'bar', 5)
+        assert_equal(rl.lrange(self.L, 0, -1), map(str, range(20)))
 
-        rl.killrange(self.L, 0, 5)
+        rl.mark(self.L, 'foo', 10)
+        assert_equal(rl.lrange(self.L, 0, -1), ([None]*5) + map(str, range(5, 20)))
 
-        res = rl.lrange(self.L, 0, -1)
-        assert_equal(res, range(5, 20))
-        raise ValueError(rl.lrange(self.L, 0, -1))
