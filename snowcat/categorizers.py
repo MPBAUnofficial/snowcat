@@ -1,4 +1,5 @@
 from abc import abstractmethod
+import pickle
 from celery import Task
 import redis
 from utils.redis_utils import PersistentObject, RedisList
@@ -135,17 +136,19 @@ class LoopCategorizer(Categorizer):
             if self.PREFETCH:
                 # try to optimize redis latency by fetching multiple data and
                 # caching it
-                item = self.rlindex_buffered(
+                raw_item = self.rlindex_buffered(
                     '{0}:{1}'.format(self.INPUT_QUEUE, user),
                     self.s.idx,
                     buf,
                     rl
                 )
             else:
-                item = rl.lindex(
+                raw_item = rl.lindex(
                     '{0}:{1}'.format(self.INPUT_QUEUE, user),
                     self.s.idx
                 )
+
+            item = pickle.loads(raw_item)
 
             time_since_last_save = time.time() - self.s.last_save
 

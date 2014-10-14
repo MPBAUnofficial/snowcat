@@ -1,3 +1,4 @@
+import pickle
 from celery import Task
 import redis
 from utils.redis_utils import RedisList
@@ -19,7 +20,7 @@ class AddData(Task):
         for cat in root_categorizers:
             rl.mark('Stream:{0}'.format(user), cat.name)
 
-        rl.rpush('{0}:{1}'.format(redis_queue, user), *data)
+        rl.rpush('{0}:{1}'.format(redis_queue, user), *map(pickle.dumps, data))
 
         for cat in root_categorizers:
             cat.run_if_not_already_running(user)
