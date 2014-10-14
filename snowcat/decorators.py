@@ -1,4 +1,5 @@
 from functools import wraps
+import traceback
 import redis
 
 redis_client = redis.StrictRedis()
@@ -27,6 +28,10 @@ def singleton_task(func):
 
         try:
             func(self, auth_id, *args, **kwargs)
+        except Exception as e:
+            print 'ERROR {0}'.format(e)
+            print ' ===================== '
+            print traceback.format_exc()
         finally:
             lock.release()
             return True
