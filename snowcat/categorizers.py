@@ -148,7 +148,7 @@ class LoopCategorizer(Categorizer):
                     self.s.idx
                 )
 
-            item = pickle.loads(raw_item)
+            item = pickle.loads(raw_item) if raw_item is not None else None
 
             time_since_last_save = time.time() - self.s.last_save
 
