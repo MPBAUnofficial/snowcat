@@ -12,9 +12,12 @@ class WordCounter(LoopCategorizer):
     INPUT_QUEUE = 'Words'
     DEFAULT_S = {}
 
-    r = redis.StrictRedis()
+    def initialize(self, user):
+        self.rl.mark('Words:{0}'.format(user), self.name)
 
     def process(self, user, val, *args, **kwargs):
+        r = self.rl.redis_client
+
         # segnale inizio stream
         if 'riju++' in str(val).strip().lower():
             with open('/tmp/snowcat_start', 'wb') as f:
@@ -25,8 +28,7 @@ class WordCounter(LoopCategorizer):
             with open('/tmp/snowcat_end', 'wb') as f:
                 f.write(str(datetime.datetime.now()))
 
-        self.r.zincrby('WordCount:{0}'.format(user), val, 1)
+        r.zincrby('WordCount:{0}'.format(user), val, 1)
 
     def checkpoint(self, user):
-        rl = RedisList()
-        rl.mark('Words:{0}'.format(user), self.name, self.s.idx)
+        self.rl.mark('Words:{0}'.format(user), self.name, self.s.idx)

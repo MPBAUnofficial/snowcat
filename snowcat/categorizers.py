@@ -23,7 +23,7 @@ def get_root_categorizers(celeryapp):
     res = set()
 
     for cat in get_all_categorizers(celeryapp):
-        if cat.DEPENDENCIES == []:
+        if not len(cat.DEPENDENCIES):
             res.add(cat)
 
     return list(res)
@@ -67,6 +67,9 @@ class Categorizer(Task):
 
         return list(self._children)
 
+    def is_root_categorizer(self):
+        return not len(self.DEPENDENCIES)
+
     def call_children(self, auth_id):
         """ Call all the tasks which depend on this one.
         """
@@ -103,12 +106,26 @@ class LoopCategorizer(Categorizer):
     s = None
 
     INPUT_QUEUE = None
-    OUTPUT_QUEUE = None
     CHECKPOINT_FREQUENCY = 60  # a minute
     DEFAULT_S = {}
 
     PREFETCH = True
     BUFFER_LENGTH = 10
+
+    rl = RedisList()
+
+    @abstractmethod
+    def initialize(self, user):
+        pass
+
+    def _initialize(self, user):
+        self.initialize(user)
+        children = self.children
+
+        # it's a utterly inefficient way, but it works
+        for c in get_all_categorizers(self.app):
+            if c.name in children:
+                c._initialize(user)
 
     @singleton_task
     def run(self, user):
@@ -121,12 +138,10 @@ class LoopCategorizer(Categorizer):
             default=def_s
         )
 
+        if self.is_root_categorizer():
+            self._initialize(user)
+
         rl = RedisList()
-
-        for cat in self.children:
-            rl.mark('{0}:{1}'.format(self.OUTPUT_QUEUE, user), cat)
-
-        self.initialize()
 
         buf = {}
 
@@ -197,9 +212,6 @@ class LoopCategorizer(Categorizer):
 
     @abstractmethod
     def checkpoint(self, user):
-        pass
-
-    def initialize(self):
         pass
 
     def pre_run(self):

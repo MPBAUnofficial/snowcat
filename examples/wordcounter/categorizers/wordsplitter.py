@@ -8,10 +8,10 @@ class WordSplitter(LoopCategorizer):
     DEPENDENCIES = []
     CHECKPOINT_FREQUENCY = 10  # ten seconds
     INPUT_QUEUE = 'Stream'
-    OUTPUT_QUEUE = 'Words'
     DEFAULT_S = {'buf': []}
 
-    rl = RedisList()
+    def initialize(self, user):
+        self.rl.mark('Stream:{0}'.format(user), self.name)
 
     def process(self, user, val, *args, **kwargs):
         char = val
@@ -24,5 +24,4 @@ class WordSplitter(LoopCategorizer):
             self.s.buf.append(char)
 
     def checkpoint(self, user):
-        rl = RedisList()
-        rl.mark('Stream:{0}'.format(user), self.name, self.s.idx)
+        self.rl.mark('Stream:{0}'.format(user), self.name, self.s.idx)
