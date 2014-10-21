@@ -5,7 +5,7 @@ setup(
     version = "0.1",
     packages = find_packages(exclude=('test', 'examples')),
 
-    install_requires = ['celery', 'redis'],
+    install_requires = ['celery', 'redis', 'flask', 'msgpack-python'],
     zip_safe=False,
 
     author = "Marco Dallagiacoma",
