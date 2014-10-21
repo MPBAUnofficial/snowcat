@@ -1,5 +1,4 @@
 from snowcat.categorizers import LoopCategorizer
-from snowcat.utils.redis_utils import RedisList
 
 
 class WordSplitter(LoopCategorizer):
@@ -10,17 +9,19 @@ class WordSplitter(LoopCategorizer):
     INPUT_QUEUE = 'Stream'
     DEFAULT_S = {'buf': []}
 
+    SEPARATORS = (' ', ';', ',', '\n', '\t')
+
     def initialize(self, user):
         self.rl.mark('Stream:{0}'.format(user), self.name)
 
     def process(self, user, val, *args, **kwargs):
         char = val
 
-        if char == ' ' and self.s.buf != []:
+        if char in self.SEPARATORS and self.s.buf != []:
             self.rl.rpush('Words:{0}'.format(user), ''.join(self.s.buf).strip())
             self.s.buf = []
 
-        if char != ' ':
+        if char not in self.SEPARATORS:
             self.s.buf.append(char)
 
     def checkpoint(self, user):
