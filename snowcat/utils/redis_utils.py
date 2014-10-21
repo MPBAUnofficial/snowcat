@@ -1,5 +1,5 @@
 import redis
-import pickle
+import msgpack
 import time
 
 
@@ -48,13 +48,13 @@ class PersistentObject(object):
 
     def save(self):
         r = object.__getattribute__(self, 'redis_client')
-        r.set('PersistentObject:{0}'.format(self.key), pickle.dumps(self.attrs))
+        r.set('PersistentObject:{0}'.format(self.key), msgpack.dumps(self.attrs))
 
     def load(self):
         r = object.__getattribute__(self, 'redis_client')
         serialized = r.get('PersistentObject:{0}'.format(self.key))
         if serialized is not None:
-            stored_val = pickle.loads(serialized)
+            stored_val = msgpack.loads(serialized)
             self.attrs.update(stored_val or {})
 
 
@@ -65,13 +65,13 @@ def redis_mget(namespace, *args, **kwargs):
     Keys can be specified as strings or as tuples where the first element is the
     actual key and the second element is the default value for that key.
 
-    Set the 'use_pickle' argument to False to get the raw data, without
-    deserializing it with pickle.
+    Set the 'serialize' argument to False to get the raw data, without
+    deserializing it with msgpack.
     """
     redis_client = kwargs.get('redis_client', redis.StrictRedis())
     pipe = redis_client.pipeline()
 
-    use_pickle = kwargs.pop('use_pickle', True)
+    serialize = kwargs.pop('serialize', True)
 
     defaults = []
 
@@ -91,7 +91,7 @@ def redis_mget(namespace, *args, **kwargs):
 
     res = pipe.execute()
 
-    get_val = lambda k: val if not use_pickle else pickle.loads(val)
+    get_val = lambda k: val if not serialize else msgpack.loads(val)
 
     res = [
         get_val(val) if val is not None else d
@@ -100,22 +100,27 @@ def redis_mget(namespace, *args, **kwargs):
     return res[0] if len(res) == 1 else res
 
 
-def redis_mset(namespace, redis_client=None, use_pickle=True, **kwargs):
+def redis_mset(namespace, redis_client=None, serialize=True, **kwargs):
     """ Set one or more key-value pair to redis.
 
-    Set the 'use_pickle' argument to False in order to put raw data in redis
-    instead of pickled data.
+    Set the 'serialize' argument to False in order to put raw data in redis
+    instead of packed data.
     """
     if redis_client is None:
         redis_client = redis.StrictRedis()
 
     for k, v in kwargs.iteritems():
-        if use_pickle:
-            v = pickle.dumps(v)
+        if serialize:
+            v = msgpack.dumps(v)
         redis_client.set('{0}_cache_{1}'.format(namespace, k), v)
 
 
-# TODO: register the script only the first time it is executed, then reuse it.
+def mloads_or_none(item):
+    if item is None:
+        return None
+    return msgpack.loads(item)
+
+
 class RedisList(object):
     """ An alternative list implementation for redis based on HashSets.
 
@@ -125,9 +130,10 @@ class RedisList(object):
     It's ugly, but it's way more efficient than native lists in accessing values by index.
     The usage is quite the same of redis lists
     """
-    def __init__(self, redis_client=None, redis_db=0):
+    def __init__(self, redis_client=None, redis_db=0, serialize=True):
         self.redis_client = redis_client or redis.StrictRedis(db=redis_db)
         self.scripts = {}
+        self.serialize = serialize
 
     def rpush(self, key, *values):
         lua = """
@@ -162,6 +168,8 @@ class RedisList(object):
         if not 'rpush' in self.scripts:
             self.scripts['rpush'] = self.redis_client.register_script(lua)
         script = self.scripts['rpush']
+        if self.serialize:
+            values = map(msgpack.dumps, values)
         return script(keys=[key], args=values)
 
     def llen(self, key):
@@ -191,7 +199,10 @@ class RedisList(object):
         if not 'lindex' in self.scripts:
             self.scripts['lindex'] = self.redis_client.register_script(lua)
         script = self.scripts['lindex']
-        return script(keys=[key], args=[index])
+        res = script(keys=[key], args=[index])
+        if self.serialize:
+            return mloads_or_none(res)
+        return res
 
     def mlindex(self, key, *indexes):
         # todo: write test cases for mlindex
@@ -207,7 +218,10 @@ class RedisList(object):
         if not 'mlindex' in self.scripts:
             self.scripts['mlindex'] = self.redis_client.register_script(lua)
         script = self.scripts['mlindex']
-        return script(keys=[key], args=indexes)
+        res = script(keys=[key], args=indexes)
+        if self.serialize:
+            return map(mloads_or_none, res)
+        return res
 
     def lrange(self, key, start, stop):
         lua = """
@@ -242,7 +256,10 @@ class RedisList(object):
         if not 'lrange' in self.scripts:
             self.scripts['lrange'] = self.redis_client.register_script(lua)
         script = self.scripts['lrange']
-        return script(keys=[key], args=[start, stop])
+        res = script(keys=[key], args=[start, stop])
+        if self.serialize:
+            return map(mloads_or_none, res)
+        return res
 
     def get_offset(self, key):
         offset = self.redis_client.hget(key, '__offset__')
@@ -313,7 +330,10 @@ class RedisList(object):
         if not 'lpop' in self.scripts:
             self.scripts['lpop'] = self.redis_client.register_script(lua)
         script = self.scripts['lpop']
-        return script(keys=[key], args=[])
+        res = script(keys=[key], args=[])
+        if self.serialize:
+            return mloads_or_none(res)
+        return res
 
     def mark(self, key, name, idx=None):
         """ Set the index of the first element needed by an entity.
@@ -430,6 +450,7 @@ def redislist_benchmark(ns):
         print 'Standard: \t{0:.3f} s'.format(r_bench)
         print 'HashSetList: \t{0:.3f} s'.format(rl_bench)
         print
+
 
 if __name__ == '__main__':
     import sys

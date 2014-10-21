@@ -22,7 +22,7 @@ class RedisListTest(unittest.TestCase):
 
         assert_equal(rl.llen(self.L), 4)
         assert_equal(rl.get_offset(self.L), 0)
-        assert_equal(rl.lrange(self.L, 0, -1), ['1', '2', '3', '4'])
+        assert_equal(rl.lrange(self.L, 0, -1), [1, 2, 3, 4])
 
     def test_llen(self):
         rl = RedisList()
@@ -47,11 +47,11 @@ class RedisListTest(unittest.TestCase):
         rl.rpush(self.L, 0, 0, 1, 2, 3, 4)
         rl.remfirstn(self.L, 2)
 
-        assert_equal(rl.lindex(self.L, 0), '1')
-        assert_equal(rl.lindex(self.L, 1), '2')
-        assert_equal(rl.lindex(self.L, 3), '4')
-        assert_equal(rl.lindex(self.L, -1), '4')
-        assert_equal(rl.lindex(self.L, -3), '2')
+        assert_equal(rl.lindex(self.L, 0), 1)
+        assert_equal(rl.lindex(self.L, 1), 2)
+        assert_equal(rl.lindex(self.L, 3), 4)
+        assert_equal(rl.lindex(self.L, -1), 4)
+        assert_equal(rl.lindex(self.L, -3), 2)
         assert_equal(rl.lindex(self.L, 100), None)
         assert_equal(rl.lindex(self.L, -100), None)
 
@@ -62,11 +62,11 @@ class RedisListTest(unittest.TestCase):
         rl.rpush(self.L, 0, 0, 1, 2, 3, 4)
         rl.remfirstn(self.L, 2)
 
-        assert_equal(rl.lrange(self.L, 0, 3), ['1', '2', '3', '4'])
-        assert_equal(rl.lrange(self.L, 0, 100), ['1', '2', '3', '4'])
-        assert_equal(rl.lrange(self.L, -100, 100), ['1', '2', '3', '4'])
-        assert_equal(rl.lrange(self.L, 0, -1), ['1', '2', '3', '4'])
-        assert_equal(rl.lrange(self.L, 0, 2), ['1', '2', '3'])
+        assert_equal(rl.lrange(self.L, 0, 3), [1, 2, 3, 4])
+        assert_equal(rl.lrange(self.L, 0, 100), [1, 2, 3, 4])
+        assert_equal(rl.lrange(self.L, -100, 100), [1, 2, 3, 4])
+        assert_equal(rl.lrange(self.L, 0, -1), [1, 2, 3, 4])
+        assert_equal(rl.lrange(self.L, 0, 2), [1, 2, 3])
         assert_equal(rl.lrange(self.L, 100, 1000), [])
         assert_equal(rl.lrange(self.L, -100, -10), [])
         assert_equal(rl.lrange(self.L, 2, 1), [])
@@ -119,13 +119,13 @@ class RedisListTest(unittest.TestCase):
 
         rl.rpush(self.L, 1, 2, 3, 4)
         elem = rl.lpop(self.L)
-        assert_equal(elem, '1')
+        assert_equal(elem, 1)
 
         elem = rl.lpop(self.L)
-        assert_equal(elem, '2')
+        assert_equal(elem, 2)
 
         elem = rl.lpop(self.L)
-        assert_equal(elem, '3')
+        assert_equal(elem, 3)
 
         assert_equal(rl.llen(self.L), 1)
 
@@ -135,11 +135,11 @@ class RedisListTest(unittest.TestCase):
 
         rl.rpush(self.L, *range(20))
         rl.mark(self.L, 'foo', 0)
-        assert_equal(rl.lrange(self.L, 0, -1), map(str, range(20)))
+        assert_equal(rl.lrange(self.L, 0, -1), range(20))
 
         rl.mark(self.L, 'bar', 5)
-        assert_equal(rl.lrange(self.L, 0, -1), map(str, range(20)))
+        assert_equal(rl.lrange(self.L, 0, -1), range(20))
 
         rl.mark(self.L, 'foo', 10)
-        assert_equal(rl.lrange(self.L, 0, -1), ([None]*5) + map(str, range(5, 20)))
+        assert_equal(rl.lrange(self.L, 0, -1), ([None]*5) + range(5, 20))
 

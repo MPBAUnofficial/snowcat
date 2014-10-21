@@ -1,6 +1,6 @@
 from abc import abstractmethod
-import pickle
 from celery import Task
+import msgpack
 import redis
 from utils.redis_utils import PersistentObject, RedisList
 from decorators import singleton_task
@@ -32,7 +32,7 @@ def get_root_categorizers(celeryapp):
 class Categorizer(Task):
     abstract = True
     name = 'Categorizer'
-    _topology = None
+    _topology = None  # todo: am I really necessary?
 
     DEPENDENCIES = []
 
@@ -151,19 +151,17 @@ class LoopCategorizer(Categorizer):
             if self.PREFETCH:
                 # try to optimize redis latency by fetching multiple data and
                 # caching it
-                raw_item = self.rlindex_buffered(
+                item = self.rlindex_buffered(
                     '{0}:{1}'.format(self.INPUT_QUEUE, user),
                     self.s.idx,
                     buf,
                     rl
                 )
             else:
-                raw_item = rl.lindex(
+                item = rl.lindex(
                     '{0}:{1}'.format(self.INPUT_QUEUE, user),
                     self.s.idx
                 )
-
-            item = pickle.loads(raw_item) if raw_item is not None else None
 
             time_since_last_save = time.time() - self.s.last_save
 
@@ -181,9 +179,14 @@ class LoopCategorizer(Categorizer):
             self.s.idx += 1
 
         self.s.save()
+        self.post_run()
+        idx = self.s.idx
         del self.s
 
-        self.post_run()
+        # check if new data has been added in the meantime
+        item = rl.lindex('{0}:{1}'.format(self.INPUT_QUEUE, user), idx)
+        if item is not None:
+            self.apply_async(countdown=2, args=(user,))
 
     def rlindex_buffered(self, key, index, buf, rl=None):
         """
