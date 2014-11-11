@@ -6,8 +6,6 @@ from utils.redis_utils import PersistentObject, RedisList
 from decorators import singleton_task
 import time
 
-redis_client = redis.StrictRedis()
-
 
 def get_all_categorizers(celeryapp):
     res = set()
@@ -32,18 +30,10 @@ def get_root_categorizers(celeryapp):
 class Categorizer(Task):
     abstract = True
     name = 'Categorizer'
-    _topology = None  # todo: am I really necessary?
 
     DEPENDENCIES = []
 
-    @property
-    def topology(self):
-        if self.__class__._topology is None:
-            raise ValueError('No topology has been defined')
-        return self.__class__._topology
-
-    def set_topology(self, topology):
-        self.__class__._topology = topology
+    rl = RedisList()
 
     def gen_key(self, user, key=''):
         """ Generate a unique key to be used for indexing i.e. in Redis.
@@ -86,7 +76,7 @@ class Categorizer(Task):
     def is_running(self, user):
         lock_key = self.gen_key(user, 'lock')
 
-        if redis_client.get(lock_key) is None:
+        if self.rl.redis_client.get(lock_key) is None:
             return False
         return True
 
@@ -121,8 +111,6 @@ class LoopCategorizer(Categorizer):
 
     PREFETCH = True
     BUFFER_LENGTH = 10
-
-    rl = RedisList()
 
     @abstractmethod
     def initialize(self, user):
