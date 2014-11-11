@@ -48,7 +48,7 @@ class PersistentObject(object):
 
     def save(self):
         r = object.__getattribute__(self, 'redis_client')
-        r.set('PersistentObject:{0}'.format(self.key), msgpack.dumps(self.attrs))
+        r.set('{0}:PersistentObject'.format(self.key), msgpack.dumps(self.attrs))
 
     def load(self):
         r = object.__getattribute__(self, 'redis_client')
