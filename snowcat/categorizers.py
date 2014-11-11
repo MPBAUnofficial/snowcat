@@ -94,10 +94,20 @@ class Categorizer(Task):
         if not self.is_running(user):
             self.delay(user, *args, **kwargs)
 
-    def close_session(self, auth_user_id):
-        for item in redis_client.keys(
-                '{0}:*'.format(self.gen_key(auth_user_id))):
-            redis_client.delete(item)
+    def cleanup(self, user):
+        """ Delete from redis every entry related to this categorizer """
+        r = self.rl.redis_client
+
+        keys = []
+        cursor, first = '0', True
+        while cursor != '0' or first:
+            cursor, data = r.scan(
+                cursor,
+                match='{0}:*'.format(self.gen_key(user))
+            )
+            keys.extend(data)
+
+        r.delete(*keys)
 
 
 class LoopCategorizer(Categorizer):
