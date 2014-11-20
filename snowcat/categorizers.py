@@ -149,10 +149,8 @@ class LoopCategorizer(Categorizer):
     def run(self, user):
         # if the categorizer is not active, just call his children
         if not self.is_active(user):
-            print "returning 0"
             if self.CALL_CHILDREN:
                 self.call_children(user)
-            print "returning"
             return
 
         # default data to put into persistent storage
