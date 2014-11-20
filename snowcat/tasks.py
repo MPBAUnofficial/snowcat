@@ -21,7 +21,7 @@ class BaseAddData(Task):
         for cat in root_categorizers:
             self.rl.mark('Stream:{0}'.format(user), cat.name)
 
-        self.rl.rpush( '{0}:{1}'.format(redis_queue, user), *data)
+        self.rl.rpush('{0}:{1}'.format(redis_queue, user), *data)
 
         for cat in root_categorizers:
             cat.run_if_not_already_running(user)
