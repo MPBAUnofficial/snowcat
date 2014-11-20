@@ -421,6 +421,18 @@ class RedisList(object):
                 self.redis_client.hset(key, '__min_idx__', min_idx)
         return min_idx
 
+    def unmark(self, key, name):
+        return self.redis_client.hdel('{0}:marks'.format(key), name)
+
+    def keyval_set(self, key, field, value):
+        return self.redis_client.hset(key, 'kv:{0}'.format(field), value)
+
+    def keyval_get(self, key, field):
+        return self.redis_client.hget(key, 'kv:{0}'.format(field))
+
+    def keyval_exists(self, key, field):
+        return self.redis_client.hexists(key, 'kv:{0}'.format(field))
+
 
 def test_redis_list(redis_client, n):
     r = redis_client
