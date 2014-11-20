@@ -27,6 +27,14 @@ def get_root_categorizers(celeryapp):
     return list(res)
 
 
+def get_categorizer_by_name(celeryapp, name):
+    # todo: maybe it would be better to do celeryapp.tasks[name]
+    for cat in get_all_categorizers(celeryapp):
+        if cat.name == name:
+            return cat
+    raise IndexError('{0} is not a valid categorizer name'.format(name))
+
+
 class Categorizer(Task):
     abstract = True
     name = 'Categorizer'
@@ -45,6 +53,9 @@ class Categorizer(Task):
             user,
             ':' + str(key) if key else ''
         )
+
+    def _initialize(self, user):
+        pass
 
     @property
     def children(self):
@@ -106,8 +117,9 @@ class LoopCategorizer(Categorizer):
     s = None
 
     INPUT_QUEUE = None
-    CHECKPOINT_FREQUENCY = 60  # a minute
+    CHECKPOINT_FREQUENCY = 60  # in seconds
     DEFAULT_S = {}
+    CALL_CHILDREN = True
 
     PREFETCH = True
     BUFFER_LENGTH = 10
@@ -125,10 +137,26 @@ class LoopCategorizer(Categorizer):
             if c.name in children:
                 c._initialize(user)
 
+    def is_active(self, user):
+        """
+        Override this method if the categorizer will be active at some time only
+        (i.e. the garbage collector which analyses the first n points only).
+        If False is returned, the categorizer will just call its children.
+        """
+        return True
+
     @singleton_task
     def run(self, user):
+        # if the categorizer is not active, just call his children
+        if not self.is_active(user):
+            print "returning 0"
+            if self.CALL_CHILDREN:
+                self.call_children(user)
+            print "returning"
+            return
+
         # default data to put into persistent storage
-        def_s = {'idx': 0, 'last_save': 0.0}
+        def_s = {'idx': 0, 'last_save': 0.0, 'loop': True}
         def_s.update(self.DEFAULT_S)
 
         self.s = PersistentObject(
@@ -143,7 +171,7 @@ class LoopCategorizer(Categorizer):
 
         buf = {}
 
-        self.pre_run()
+        self.pre_run(user)
 
         while True:
             if self.PREFETCH:
@@ -164,21 +192,28 @@ class LoopCategorizer(Categorizer):
             time_since_last_save = time.time() - self.s.last_save
 
             if item is None or time_since_last_save > self.CHECKPOINT_FREQUENCY:
-                self.call_children(user)
+                if self.CALL_CHILDREN:
+                    self.call_children(user)
+
                 self.checkpoint(user)
                 self.s.last_save = time.time()
-                self.s.save()
 
             if item is None:
                 break
 
             self.process(user, item)
 
+            if not self.s.loop:
+                self.s.loop = True
+                break
+
             self.s.idx += 1
 
         self.s.save()
-        self.post_run()
+
         idx = self.s.idx
+
+        self.post_run(user)
         del self.s
 
         # check if new data has been added in the meantime
@@ -215,8 +250,8 @@ class LoopCategorizer(Categorizer):
     def checkpoint(self, user):
         pass
 
-    def pre_run(self):
+    def pre_run(self, user):
         pass
 
-    def post_run(self):
+    def post_run(self, user):
         pass
