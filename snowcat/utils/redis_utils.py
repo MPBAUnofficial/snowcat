@@ -57,6 +57,12 @@ class PersistentObject(object):
             stored_val = msgpack.loads(serialized)
             self.attrs.update(stored_val or {})
 
+    def get(self, attr, default=None):
+        attrs = object.__getattribute__(self, 'attrs')
+        if attr in attrs:
+            return attrs[attr]
+        return default
+
 
 def redis_mget(namespace, *args, **kwargs):
     """
