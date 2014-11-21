@@ -436,9 +436,10 @@ class RedisList(object):
                                       msgpack.dumps(value))
 
     def keyval_get(self, key, field):
-        return msgpack.loads(
-            self.redis_client.hget(key, 'kv:{0}'.format(field))
-        )
+        res = self.redis_client.hget(key, 'kv:{0}'.format(field))
+        if res is None:
+            return None
+        return msgpack.loads(res)
 
     def keyval_exists(self, key, field):
         return self.redis_client.hexists(key, 'kv:{0}'.format(field))
