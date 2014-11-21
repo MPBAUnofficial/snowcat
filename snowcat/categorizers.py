@@ -163,6 +163,7 @@ class LoopCategorizer(Categorizer):
             self.gen_key(user),
             default=def_s
         )
+        self.s.loop = True
 
         if self.is_root_categorizer():
             self._initialize(user)
@@ -173,7 +174,7 @@ class LoopCategorizer(Categorizer):
 
         self.pre_run(user)
 
-        while True:
+        while self.s.loop:
             if self.PREFETCH:
                 # try to optimize redis latency by fetching multiple data and
                 # caching it
@@ -203,23 +204,22 @@ class LoopCategorizer(Categorizer):
 
             self.process(user, item)
 
-            if not self.s.loop:
-                self.s.loop = True
-                break
-
-            self.s.idx += 1
+            if self.s.loop:
+                self.s.idx += 1
 
         self.s.save()
 
         idx = self.s.idx
+        loop = self.s.loop
 
         self.post_run(user)
         del self.s
 
-        # check if new data has been added in the meantime
-        item = rl.lindex('{0}:{1}'.format(self.INPUT_QUEUE, user), idx)
-        if item is not None:
-            self.apply_async(countdown=2, args=(user,))
+        if loop:
+            # check if new data has been added in the meantime
+            item = rl.lindex('{0}:{1}'.format(self.INPUT_QUEUE, user), idx)
+            if item is not None:
+                self.apply_async(countdown=2, args=(user,))
 
     def rlindex_buffered(self, key, index, buf, rl=None):
         """
