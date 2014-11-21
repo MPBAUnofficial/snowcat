@@ -425,10 +425,14 @@ class RedisList(object):
         return self.redis_client.hdel('{0}:marks'.format(key), name)
 
     def keyval_set(self, key, field, value):
-        return self.redis_client.hset(key, 'kv:{0}'.format(field), value)
+        return self.redis_client.hset(key,
+                                      'kv:{0}'.format(field),
+                                      msgpack.dumps(value))
 
     def keyval_get(self, key, field):
-        return self.redis_client.hget(key, 'kv:{0}'.format(field))
+        return msgpack.loads(
+            self.redis_client.hget(key, 'kv:{0}'.format(field))
+        )
 
     def keyval_exists(self, key, field):
         return self.redis_client.hexists(key, 'kv:{0}'.format(field))
