@@ -100,15 +100,17 @@ class Categorizer(Task):
         r = self.rl.redis_client
 
         keys = []
-        cursor, first = '0', True
-        while cursor != '0' or first:
+        cursor, first = 0, True
+        while int(cursor) != 0 or first:
+            first = False
             cursor, data = r.scan(
                 cursor,
                 match='{0}:*'.format(self.gen_key(user))
             )
-            keys.extend(data)
+            keys.extend([d for d in data if not d.endswith(':lock')])
 
-        r.delete(*keys)
+        if keys:
+            r.delete(*keys)
 
 
 class LoopCategorizer(Categorizer):
