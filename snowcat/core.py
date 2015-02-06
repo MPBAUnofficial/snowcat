@@ -22,7 +22,7 @@ class Topology(object):
                     '{0} is not a valid name for a categorizer'.format(t.name)
                 )
             for dep in getattr(t, 'DEPENDENCIES', []):
-                if not dep in tasks_name:
+                if dep not in tasks_name:
                     errors.append(
                         '{0} is not a registered categorizer'.format(dep)
                     )
