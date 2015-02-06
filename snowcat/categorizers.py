@@ -59,6 +59,7 @@ class Categorizer(Task):
 
     @property
     def children(self):
+        """ Return list with the names of the children of the categorizer """
         if not hasattr(self, '_children') or self._children is None:
             self._children = set()
 
@@ -69,11 +70,11 @@ class Categorizer(Task):
         return list(self._children)
 
     def is_root_categorizer(self):
+        """ Return True if categorizer does not depend on other categorizers """
         return not len(self.DEPENDENCIES)
 
     def call_children(self, auth_id):
-        """ Call all the tasks which depend on this one.
-        """
+        """ Call all the tasks which depend on this one. """
         children = self.children
 
         for cat in children:
@@ -85,6 +86,7 @@ class Categorizer(Task):
         pass
 
     def is_running(self, user):
+        """ Return True if the categorizer is running """
         lock_key = self.gen_key(user, 'lock')
 
         if self.rl.redis_client.get(lock_key) is None:
@@ -128,9 +130,14 @@ class LoopCategorizer(Categorizer):
 
     @abstractmethod
     def initialize(self, user):
+        """ Runs every time the categorizer is waked up.
+        Note that it may be runned more than once.
+        """
         pass
 
     def _initialize(self, user):
+        """ Recursively call initialization method of all children.
+        """
         self.initialize(user)
         children = self.children
 
