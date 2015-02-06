@@ -45,27 +45,32 @@ class PersistentObject(object):
     def _obj_getattr(self, name):
         object.__getattribute__(self, name)
 
+    @property
+    def _redis_key(self):
+        """ Generate the redis key for this PersistentObject """
+        return '{0}:PersistentObject'.format(self.key)
+
     def save(self):
+        """ Save the data on redis """
         r = object.__getattribute__(self, 'redis_client')
-        r.set('{0}:PersistentObject'.format(self.key), msgpack.dumps(self.attrs))
+        r.set(self._redis_key, msgpack.dumps(self.attrs))
 
     def load(self):
+        """ Load the data from redis"""
         r = object.__getattribute__(self, 'redis_client')
-        serialized = r.get('PersistentObject:{0}'.format(self.key))
+        serialized = r.get(self._redis_key)
         if serialized is not None:
             stored_val = msgpack.loads(serialized)
             self.attrs.update(stored_val or {})
 
     def get(self, attr, default=None):
+        """ PO.get(k[,d]) -> D[k] if k in PO, else d.  d defaults to None. """
         attrs = object.__getattribute__(self, 'attrs')
         if attr in attrs:
             return attrs[attr]
         return default
 
-
-
-
-
-
-
-
+    def delete(self):
+        """ Delete the PersistentObject from redis. """
+        r = object.__getattribute__(self, 'redis_client')
+        r.delete(self._redis_key)
