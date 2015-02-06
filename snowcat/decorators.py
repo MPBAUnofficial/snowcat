@@ -6,6 +6,15 @@ redis_client = redis.StrictRedis()
 LOCK_EXPIRE = 60 * 60  # 1 hour
 
 
+def print_s(s):
+    for k, v in s['attrs'].iteritems():
+        print '{k}: {v}'.format(
+            k=k,
+            v=str(v) if len(str(v)) < 200
+            else str(v)[:90] + ' ... ' + str(v)[90:]
+        )
+
+
 def singleton_task(func):
     """
     Decorator to make the task a pseudo-singleton.
@@ -27,10 +36,14 @@ def singleton_task(func):
             return False
 
         try:
+            print "{} starting on {}".format(self.name, auth_id)
             func(self, auth_id, *args, **kwargs)
+            print "{} ending on {}".format(self.name, auth_id)
         except Exception as e:
-            print 'ERROR {0}'.format(e)
+            print 'ERROR for {0}: {1}'.format(auth_id, e)
             print ' ===================== '
+            print self.s
+            print ' --------------------- '
             print traceback.format_exc()
         finally:
             lock.release()
