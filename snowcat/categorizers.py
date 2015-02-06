@@ -1,10 +1,12 @@
 from abc import abstractmethod
 from celery import Task
 import msgpack
-import redis
-from utils.redis_utils import PersistentObject, RedisList
+from utils.redis_utils import PersistentObject
 from decorators import singleton_task
+from lockfile import LockFile
 import time
+import os
+import redis
 
 
 def get_all_categorizers(celeryapp):
@@ -41,7 +43,7 @@ class Categorizer(Task):
 
     DEPENDENCIES = []
 
-    rl = RedisList()
+    redis_client = redis.StrictRedis()
 
     def gen_key(self, user, key=''):
         """ Generate a unique key to be used for indexing i.e. in Redis.
@@ -89,7 +91,7 @@ class Categorizer(Task):
         """ Return True if the categorizer is running """
         lock_key = self.gen_key(user, 'lock')
 
-        if self.rl.redis_client.get(lock_key) is None:
+        if self.redis_client.get(lock_key) is None:
             return False
         return True
 
@@ -99,20 +101,18 @@ class Categorizer(Task):
 
     def cleanup(self, user):
         """ Delete from redis every entry related to this categorizer """
-        r = self.rl.redis_client
-
         keys = []
         cursor, first = 0, True
         while int(cursor) != 0 or first:
             first = False
-            cursor, data = r.scan(
+            cursor, data = self.redis_client.scan(
                 cursor,
                 match='{0}:*'.format(self.gen_key(user))
             )
             keys.extend([d for d in data if not d.endswith(':lock')])
 
         if keys:
-            r.delete(*keys)
+            self.redis_client.delete(*keys)
 
 
 class LoopCategorizer(Categorizer):
@@ -120,13 +120,19 @@ class LoopCategorizer(Categorizer):
 
     s = None
 
+    FSQUEUE_PREFIX = '/tmp/snowcat/'
     INPUT_QUEUE = None
     CHECKPOINT_FREQUENCY = 60  # in seconds
     DEFAULT_S = {}
     CALL_CHILDREN = True
 
-    PREFETCH = True
     BUFFER_LENGTH = 10
+
+    def queue_dir(self, auth_id, queue=None):
+        if queue is None:
+            queue = self.INPUT_QUEUE
+
+        return os.path.join(self.FSQUEUE_PREFIX, str(auth_id), queue, 'queue')
 
     @abstractmethod
     def initialize(self, user):
@@ -154,6 +160,70 @@ class LoopCategorizer(Categorizer):
         """
         return True
 
+    @staticmethod
+    def save_chunk_fs(data, queue_dir):
+        """ Save a chunk of data on the file system.
+        Data will be serialized as messagepack.
+        """
+        # todo: give option to set index manually
+        try:
+            ls = os.listdir(queue_dir)
+        except OSError:
+            if not os.path.exists(queue_dir):
+                os.makedirs(queue_dir)
+                ls = []
+            else:
+                return False
+
+        mx = 0
+        for s in ls:
+            try:
+                num = int(s)
+            except ValueError:
+                continue
+            mx = max(mx, num)
+
+        file_path = os.path.join(queue_dir, str(mx + 1))
+        lock = LockFile(file_path)
+        with lock, open(file_path, 'wb') as f:  # todo: lock timeout?
+            f.write(msgpack.dumps(data))
+        return True
+
+    def _fill_buffer(self, user, chunk_num):
+        """ Fill the buffer with the data in <chunk_num>-th file.
+        Return False if the file does not exist.
+        """
+        file_path = os.path.join(self.queue_dir(user),
+                                 str(chunk_num))
+
+        if os.path.exists(file_path):
+            lock = LockFile(file_path)
+            with lock, open(file_path, 'rb') as f:  # todo: lock timeout
+                self.s.cat__buf = msgpack.unpack(f)
+                self.s.cat__buf_offset = self.s.idx
+                self.s.cat__chunk = chunk_num
+                return True
+        return False
+
+    def bufget(self, user, _idx, rec=True):
+        # fill buffer if it is empty
+        if self.s.cat__buf_offset is None or self.s.cat__buf is None:
+            res = self._fill_buffer(user, self.s.cat__chunk + 1)
+            if not res or not rec:
+                return None
+
+        # must be a function since buf_offset will change if buffer is filled
+        buf_idx = lambda: _idx - self.s.cat__buf_offset
+
+        if buf_idx() >= len(self.s.cat__buf):
+            if not self._fill_buffer(user, self.s.cat__chunk + 1):
+                return None
+
+        if buf_idx() < 0:
+            return None
+
+        return self.s.cat__buf[buf_idx()]
+
     @singleton_task
     def run(self, user):
         # if the categorizer is not active, just call his children
@@ -163,7 +233,14 @@ class LoopCategorizer(Categorizer):
             return
 
         # default data to put into persistent storage
-        def_s = {'idx': 0, 'last_save': 0.0, 'loop': True}
+        def_s = {
+            'idx': 0,
+            'last_save': 0.0,
+            'loop': True,
+            'cat__chunk': 0,
+            'cat__buf': None,
+            'cat__buf_offset': None
+        }
         def_s.update(self.DEFAULT_S)
 
         self.s = PersistentObject(
@@ -175,27 +252,10 @@ class LoopCategorizer(Categorizer):
         if self.is_root_categorizer():
             self._initialize(user)
 
-        rl = RedisList()
-
-        buf = {}
-
         self.pre_run(user)
 
         while self.s.loop:
-            if self.PREFETCH:
-                # try to optimize redis latency by fetching multiple data and
-                # caching it
-                item = self.rlindex_buffered(
-                    '{0}:{1}'.format(self.INPUT_QUEUE, user),
-                    self.s.idx,
-                    buf,
-                    rl
-                )
-            else:
-                item = rl.lindex(
-                    '{0}:{1}'.format(self.INPUT_QUEUE, user),
-                    self.s.idx
-                )
+            item = self.bufget(user, self.s.idx)
 
             time_since_last_save = time.time() - self.s.last_save
 
@@ -211,43 +271,22 @@ class LoopCategorizer(Categorizer):
 
             self.process(user, item)
 
-            if self.s.loop:
-                self.s.idx += 1
+            self.s.idx += 1
 
         self.s.save()
 
-        idx = self.s.idx
-        loop = self.s.loop
-
         self.post_run(user)
-        del self.s
 
-        if loop:
+        # todo: a different, asynchronous task to check if new data is available
+        # since now there is still a little time frame where
+        #       race conditions may occur.
+        if self.s.loop:
             # check if new data has been added in the meantime
-            item = rl.lindex('{0}:{1}'.format(self.INPUT_QUEUE, user), idx)
+            item = self.bufget(user, self.s.idx)
             if item is not None:
                 self.apply_async(countdown=2, args=(user,))
 
-    def rlindex_buffered(self, key, index, buf, rl=None):
-        """
-        If the value is contained in the cache buffer, then return it.
-        Otherwise, fetch the value from redis, caching some previous and
-        following values in the buffer.
-
-        self.BUFFER_LENGTH defines how long will be the window of buffered
-        values.
-        """
-        res = buf.get(key, {}).get(index, None)
-        if res is None:
-            if rl is None:
-                rl = RedisList()
-
-            index_range = range(index - self.BUFFER_LENGTH,
-                                index + self.BUFFER_LENGTH)
-            buf[key] = dict(zip(index_range, rl.mlindex(key, *index_range)))
-
-        res = buf[key][index]
-        return res
+        self.s = None
 
     @abstractmethod
     def process(self, user, item):

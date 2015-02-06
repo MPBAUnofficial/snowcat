@@ -1,27 +1,26 @@
 from celery import Task
 import redis
-from utils.redis_utils import RedisList
-from categorizers import get_root_categorizers
+from categorizers import get_root_categorizers, LoopCategorizer
+import os
 
 
 class BaseAddData(Task):
     queue = 'add_data'
 
+    FSQUEUE_PREFIX = '/tmp/snowcat/'
+
     r = redis.StrictRedis()
-    rl = RedisList(redis_client=r)
 
-    def run(self, data, redis_queue=None):
-        if redis_queue is None:
-            redis_queue = 'Stream'
-
+    def run(self, data, queue='Stream'):
         root_categorizers = get_root_categorizers(self.app)
 
         user = data['user']
 
-        for cat in root_categorizers:
-            self.rl.mark('Stream:{0}'.format(user), cat.name)
-
-        self.rl.rpush('{0}:{1}'.format(redis_queue, user), *data)
+        LoopCategorizer.save_chunk_fs(
+            data['data'] if isinstance(data['data'], (tuple, list))
+            else [data['data']],
+            os.path.join(self.FSQUEUE_PREFIX, str(user), queue, 'queue')
+        )
 
         for cat in root_categorizers:
             cat.run_if_not_already_running(user)
