@@ -9,7 +9,7 @@ class Topology(object):
         self._add_data = add_data()
         self._add_data.bind(self.app)
 
-    def add_data(self, data, redis_queue=None):
+    def add_data(self, data, redis_queue='Stream'):
         return self._add_data.delay(data, redis_queue)
 
     def errors(self):
