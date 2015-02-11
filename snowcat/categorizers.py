@@ -59,6 +59,15 @@ class Categorizer(Task):
     def _initialize(self, user):
         pass
 
+    def keyval_set(self, auth_id, key, value):
+        self.redis_client.hset(self.gen_key(auth_id, 'kv'), key, msgpack.dumps(value))
+
+    def keyval_get(self, auth_id, key, default=None):
+        res = self.redis_client.hget(self.gen_key(auth_id, 'kv'), key)
+        if res is None:
+            return default
+        return msgpack.loads(res)
+
     @property
     def children(self):
         """ Return list with the names of the children of the categorizer """
