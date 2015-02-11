@@ -85,7 +85,7 @@ class Categorizer(Task):
         return not len(self.DEPENDENCIES)
 
     def call_children(self, auth_id):
-        """ Call all the tasks which depend on this one. """
+        """ Call all the categorizers which depend on this one. """
         children = self.children
 
         for cat in children:
@@ -109,7 +109,7 @@ class Categorizer(Task):
             self.delay(user, *args, **kwargs)
 
     def cleanup(self, user):
-        """ Delete from redis every entry related to this categorizer """
+        """ Delete data related to this categorizer """
         keys = []
         cursor, first = 0, True
         while int(cursor) != 0 or first:
@@ -175,6 +175,7 @@ class LoopCategorizer(Categorizer):
         Data will be serialized as messagepack.
         """
         # todo: give option to set index manually
+        # todo: clean the directory after a bit of time
         try:
             ls = os.listdir(queue_dir)
         except OSError:
@@ -287,7 +288,7 @@ class LoopCategorizer(Categorizer):
         self.post_run(user)
 
         # todo: a different, asynchronous task to check if new data is available
-        # since now there is still a little time frame where
+        #       since now there is still a little time frame where
         #       race conditions may occur.
         if self.s.loop:
             # check if new data has been added in the meantime
