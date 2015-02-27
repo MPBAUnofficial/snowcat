@@ -150,7 +150,6 @@ class LoopCategorizer(Categorizer):
 
         return os.path.join(self.FSQUEUE_PREFIX, str(auth_id), queue, 'queue')
 
-    @abstractmethod
     def initialize(self, user):
         """ Runs every time the categorizer is waked up.
         Note that it may be runned more than once.
