@@ -20,15 +20,15 @@ class BaseAddData(Task):
         )
 
     def keyval_set(self, auth_id, key, value):
-        self.r.hset(self.gen_key(auth_id, 'kv'), key, msgpack.dumps(value))
+        self.r.hset(str(auth_id) + ':kv', key, msgpack.dumps(value))
 
     def keyval_get(self, auth_id, key, default=None):
-        res = self.r.hget(self.gen_key(auth_id, 'kv'), key)
+        res = self.r.hget(str(auth_id) + ':kv', key)
         if res is None:
             return default
         return msgpack.loads(res)
 
-    def run(self, data, queue='Stream'):
+    def run(self, data, queue='Stream', **kwargs):
         root_categorizers = get_root_categorizers(self.app)
 
         user = data['user']
