@@ -7,11 +7,11 @@ LOCK_EXPIRE = 60 * 60  # 1 hour
 
 
 def print_s(s):
-    for k, v in s['attrs'].iteritems():
+    for k, v in s.attrs.iteritems():
         print '{k}: {v}'.format(
             k=k,
             v=str(v) if len(str(v)) < 200
-            else str(v)[:90] + ' ... ' + str(v)[90:]
+            else str(v)[:90] + ' ... ' + str(v)[-90:]
         )
 
 
@@ -42,7 +42,7 @@ def singleton_task(func):
         except Exception as e:
             print 'ERROR for {0}: {1}'.format(auth_id, e)
             print ' ===================== '
-            print self.s
+            print_s(self.s)
             print ' --------------------- '
             print traceback.format_exc()
         finally:
