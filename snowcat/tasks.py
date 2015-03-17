@@ -1,5 +1,4 @@
 from celery import Task
-import msgpack
 import redis
 from categorizers import get_root_categorizers, LoopCategorizer
 import os
@@ -18,15 +17,6 @@ class BaseAddData(Task):
             user,
             ':' + str(key) if key else ''
         )
-
-    def keyval_set(self, auth_id, key, value):
-        self.r.hset(str(auth_id) + ':kv', key, msgpack.dumps(value))
-
-    def keyval_get(self, auth_id, key, default=None):
-        res = self.r.hget(str(auth_id) + ':kv', key)
-        if res is None:
-            return default
-        return msgpack.loads(res)
 
     def run(self, data, queue='Stream', **kwargs):
         root_categorizers = get_root_categorizers(self.app)

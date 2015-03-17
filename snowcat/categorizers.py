@@ -1,7 +1,7 @@
 from abc import abstractmethod
 from celery import Task
 import msgpack
-from utils.redis_utils import PersistentObject
+from utils.redis_utils import PersistentObject, SimpleKV
 from decorators import singleton_task
 from lockfile import LockFile
 import time
@@ -58,22 +58,6 @@ class Categorizer(Task):
 
     def _initialize(self, user):
         pass
-
-    def keyval_set(self, namespace, key, value):
-        self.redis_client.hset(
-            '{0}:{1}'.format(namespace, 'kv'),
-            key,
-            msgpack.dumps(value)
-        )
-
-    def keyval_get(self, namespace, key, default=None):
-        res = self.redis_client.hget('{0}:{1}'.format(namespace, 'kv'), key)
-        if res is None:
-            return default
-        return msgpack.loads(res)
-
-    def keyval_exists(self, namespace, key):
-        return self.redis_client.hexists('{0}:{1}'.format(namespace, 'kv'), key)
 
     @property
     def children(self):
@@ -135,6 +119,7 @@ class LoopCategorizer(Categorizer):
     abstract = True
 
     s = None
+    kv = None
 
     FSQUEUE_PREFIX = '/tmp/snowcat/'
     INPUT_QUEUE = None
@@ -259,6 +244,9 @@ class LoopCategorizer(Categorizer):
         }
         def_s.update(self.DEFAULT_S)
 
+        self.kv = SimpleKV(user)  # global keyvalue storage
+
+        # local keyvalue storage
         self.s = PersistentObject(
             self.gen_key(user),
             default=def_s
