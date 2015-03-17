@@ -53,6 +53,9 @@ class SimpleKV(object):
             return default
         return msgpack.loads(res)
 
+    def exists(self, k):
+        return self.redis_client.hexists(self._redis_ns, k)
+
     def delete(self):
         return self.redis_client.delete(self._redis_ns)
 
@@ -112,6 +115,9 @@ class PersistentObject(object):
 
     def getall(self):
         return self.attrs
+
+    def exists(self, k):
+        return k in self.attrs
 
     def delete(self):
         """ Delete the object from redis """
