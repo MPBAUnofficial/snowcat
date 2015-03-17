@@ -51,7 +51,7 @@ class SimpleKV(object):
         res = self.redis_client.hget(self._redis_ns, k)
         if res is None:
             return default
-        return msgpack.dumps(res)
+        return msgpack.loads(res)
 
     def delete(self):
         return self.redis_client.delete(self._redis_ns)
