@@ -52,6 +52,40 @@ class Categorizer(Task):
             self._logger = get_task_logger(self.name)
         return self._logger
 
+    def initialize_categorizers(self, user):
+        """
+        Initialize all the categorizers recursively starting from
+        root categorizers.
+        If another task is running categorizers initialization, wait for it to
+        finish before continuing.
+        """
+        def initialize_rec(categorizer):
+            categorizer.initialize(user)
+            for cat in categorizer.children:
+                initialize_rec(cat)
+
+        if self.kv.get('categorizers_initialization_finished', False):
+            return
+
+        if self.kv.getset('categorizers_initialization_started', True, False):
+            # if categorizers initialization didn't start yet
+            for c in get_root_categorizers(self.app):
+                initialize_rec(c)
+            self.kv.categorizers_initialization_finished = True
+
+        else:
+            # otherwise, if initialization is running in another task, wait for
+            # it to finish.
+            while not self.kv.categorizers_initialization_finished:
+                time.sleep(0.5)
+
+    def initialize(self, user):
+        """
+        Method called the first time the categorizer is called
+        for a specific user.
+        """
+        pass
+
     def gen_key(self, user, key=''):
         """ Generate a unique key to be used for indexing i.e. in Redis.
         Generated key will normally contain categorizer name and user id, and
@@ -69,9 +103,6 @@ class Categorizer(Task):
         categorizer itself (i.e. for communication between categorizers).
         """
         return '{0}:{1}'.format(user, key)
-
-    def _initialize(self, user):
-        pass
 
     @property
     def children(self):
@@ -148,23 +179,6 @@ class LoopCategorizer(Categorizer):
             queue = self.INPUT_QUEUE
 
         return os.path.join(self.FSQUEUE_PREFIX, str(auth_id), queue, 'queue')
-
-    def initialize(self, user):
-        """ Runs every time the categorizer is waked up.
-        Note that it may be runned more than once.
-        """
-        pass
-
-    def _initialize(self, user):
-        """ Recursively call initialization method of all children.
-        """
-        self.initialize(user)
-        children = self.children
-
-        # it's a utterly inefficient way, but it works
-        for c in get_all_categorizers(self.app):
-            if c.name in children:
-                c._initialize(user)
 
     def is_active(self, user):
         """
@@ -267,8 +281,8 @@ class LoopCategorizer(Categorizer):
         )
         self.s.loop = True
 
-        if self.is_root_categorizer():
-            self._initialize(user)
+        # launch categorizers initialization, if it hasn't been done already.
+        self.initialize_categorizers(user)
 
         self.pre_run(user)
 
