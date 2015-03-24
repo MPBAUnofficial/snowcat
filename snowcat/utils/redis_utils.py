@@ -46,15 +46,33 @@ class SimpleKV(object):
         attrs = self.redis_client.hgetall(self._redis_ns)
         return {k: msgpack.loads(v) for k, v in attrs.iteritems()}
 
-    def get(self, k, default=None):
-        """ PO.get(k[,d]) -> D[k] if k in PO, else d.  d defaults to None. """
-        res = self.redis_client.hget(self._redis_ns, k)
+    def get(self, key, default=None):
+        """ PO.get(key[,d]) -> D[key] if key in PO, else d.
+        d defaults to None.
+        """
+        res = self.redis_client.hget(self._redis_ns, key)
         if res is None:
             return default
         return msgpack.loads(res)
 
-    def exists(self, k):
-        return self.redis_client.hexists(self._redis_ns, k)
+    def getset(self, key, value, default=None):
+        """ Sets the value at key ``key`` to ``value``
+        and returns the old value at key ``key`` atomically.
+        """
+        p = self.r_client.pipeline()
+        p.multi()
+
+        p.hget(self._redis_ns, key)
+        p.hset(self._redis_ns, key, msgpack.dumps(value))
+
+        res = p.execute()[0]
+        if res is None:
+            return default
+
+        return msgpack.loads(res)
+
+    def exists(self, key):
+        return self.redis_client.hexists(self._redis_ns, key)
 
     def delete(self):
         return self.redis_client.delete(self._redis_ns)
