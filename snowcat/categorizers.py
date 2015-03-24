@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from celery import Task
+from celery.utils.log import get_task_logger
 import msgpack
 from utils.redis_utils import PersistentObject, SimpleKV
 from decorators import singleton_task
@@ -44,6 +45,12 @@ class Categorizer(Task):
     DEPENDENCIES = []
 
     redis_client = redis.StrictRedis()
+
+    @property
+    def logger(self):
+        if not hasattr(self, '_logger'):
+            self._logger = get_task_logger(self.name)
+        return self._logger
 
     def gen_key(self, user, key=''):
         """ Generate a unique key to be used for indexing i.e. in Redis.
