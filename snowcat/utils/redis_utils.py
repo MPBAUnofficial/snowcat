@@ -141,3 +141,155 @@ class PersistentObject(object):
         """ Delete the object from redis """
         self.attrs = {}
         return self.redis_client.delete(self._redis_ns)
+
+
+class PollValue(object):
+    class SubscriptionClosedException(RuntimeError):
+        pass
+
+    class SubscriberDoesNotExist(IndexError):
+        pass
+
+    def __init__(self, poll_name):
+        self.redis_client = redis.StrictRedis()
+
+        self.poll_name = '{0}:PollValue'.format(poll_name)
+        self.scripts = {}
+
+    def _get_script(self, name, lua):
+        if name not in self.scripts:
+            self.scripts[name] = self.redis_client.register_script(lua)
+        return self.scripts[name]
+
+    def subscribe(self, name):
+        lua = """
+        local poll_name = KEYS[1]
+        local subscriber_name = ARGV[1]
+
+        -- return with no errors if already subscribed
+        if redis.call('HEXISTS', poll_name, subscriber_name) ~= 0 then
+            return 2 -- already subscribed
+        end
+
+        -- return error if subscriptions are closed (votes started)
+        for i, v in ipairs(redis.call('HVALS', poll_name)) do
+            local parsed = cmsgpack.unpack(v)
+
+            if parsed ~= nil then
+                return 0 -- subscription closed
+            end
+        end
+
+        redis.call('HSET', poll_name, subscriber_name, cmsgpack.pack(nil))
+        return 1 -- subscribe
+        """
+
+        script = self._get_script('subscribe', lua)
+        res = script(keys=[self.poll_name], args=[name])
+        if res == 0:
+            raise self.SubscriptionClosedException(
+                'Subscriptions are not possible after the voting phase started'
+            )
+        return res
+
+    def vote(self, subscriber_name, vote):
+        lua = """
+        local poll_name = KEYS[1]
+        local subscriber_name = ARGV[1]
+        local value = ARGV[2]
+
+        local val = redis.call('HGET', poll_name, subscriber_name)
+        if val == nil then
+            return 0 -- voter didn't subscribe
+        end
+
+        val = cmsgpack.unpack(val)
+        if val ~= nil then
+            return 1 -- already voted
+        end
+
+        redis.call('HSET', poll_name, subscriber_name, cmsgpack.pack(value))
+
+        local everyone_voted = true
+        for i, v in ipairs(redis.call('HVALS', poll_name)) do
+            local parsed = cmsgpack.unpack(v)
+            if parsed == nil then
+                everyone_voted = false
+            end
+        end
+
+        if everyone_voted then
+            return 3 -- poll complete
+        end
+
+        return 2 -- voted
+        """
+
+        script = self._get_script('vote', lua)
+        res = script(keys=[self.poll_name], args=[subscriber_name, vote])
+        if res == 0:
+            raise self.SubscriberDoesNotExist(
+                '{0} did\'nt subscribe and therefore is not allowed to vote'
+                .format(subscriber_name)
+            )
+        return res
+
+    def null_vote(self, subscriber_name):
+        lua = """
+        local poll_name = KEYS[1]
+        local subscriber_name = ARGV[1]
+
+        local val = redis.call('HGET', poll_name, subscriber_name)
+        if val == nil then
+            return 0 -- voter didn't subscribe
+        end
+
+        val = cmsgpack.unpack(val)
+        if val ~= nil then
+            return 1 -- already voted
+        end
+
+        redis.call('HDEL', poll_name, subscriber_name)
+
+        local everyone_voted = true
+        for i, v in ipairs(redis.call('HVALS', poll_name)) do
+            local parsed = cmsgpack.unpack(v)
+            if parsed == nil then
+                everyone_voted = false
+            end
+        end
+
+        if everyone_voted then
+            return 3 -- poll complete
+        end
+
+        return 2 -- voted
+        """
+
+        script = self._get_script('null_vote', lua)
+        res = script(keys=[self.poll_name], args=[subscriber_name])
+        if res == 0:
+            raise self.SubscriberDoesNotExist(
+                '{0} did\'nt subscribe and therefore is not allowed to vote'
+                .format(subscriber_name)
+            )
+        return res
+
+    @property
+    def votes(self):
+        if self.redis_client.hlen(self.poll_name):
+            return {
+                k: msgpack.loads(v)
+                for k, v
+                in self.redis_client.hgetall(self.poll_name).iteritems()
+            }
+        return {}
+
+    @property
+    def values(self):
+        if self.redis_client.hlen(self.poll_name):
+            return map(
+                msgpack.loads,
+                self.redis_client.hgetall(self.poll_name).values()
+            )
+        return []
