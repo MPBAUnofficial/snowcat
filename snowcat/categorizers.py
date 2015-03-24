@@ -56,6 +56,13 @@ class Categorizer(Task):
             ':' + str(key) if key else ''
         )
 
+    def shared_key(self, user, key):
+        """
+        Generate a unique key that refers to the user and not the
+        categorizer itself (i.e. for communication between categorizers).
+        """
+        return '{0}:{1}'.format(user, key)
+
     def _initialize(self, user):
         pass
 
