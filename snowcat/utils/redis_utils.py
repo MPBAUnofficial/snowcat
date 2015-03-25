@@ -59,7 +59,7 @@ class SimpleKV(object):
         """ Sets the value at key ``key`` to ``value``
         and returns the old value at key ``key`` atomically.
         """
-        p = self.r_client.pipeline()
+        p = self.redis_client.pipeline()
         p.multi()
 
         p.hget(self._redis_ns, key)
