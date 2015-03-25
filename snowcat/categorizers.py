@@ -38,6 +38,43 @@ def get_categorizer_by_name(celeryapp, name):
     raise IndexError('{0} is not a valid categorizer name'.format(name))
 
 
+def initialize_categorizers(celeryapp, user):
+    """
+    Initialize all the categorizers recursively starting from
+    root categorizers.
+    If another task is running categorizers initialization, wait for it to
+    finish before continuing.
+    """
+    kv = SimpleKV(user)
+    logger = get_task_logger('InitCategorizers<{0}>'.format(user))
+
+    def initialize_rec(categorizer):
+        categorizer.initialize(user)
+        for cat in categorizer.children:
+            initialize_rec(get_categorizer_by_name(celeryapp, cat))
+
+    if kv.get('categorizers_initialization_finished', False):
+        return
+
+    if kv.getset('categorizers_initialization_started', True, False):
+        # if categorizers initialization didn't start yet
+        logger.debug('starting initialization for {0}'.format(user))
+        for c in get_root_categorizers(celeryapp):
+            initialize_rec(c)
+        kv.categorizers_initialization_finished = True
+        logger.debug('initialization finished for {0}'.format(user))
+
+    else:
+        # otherwise, if initialization is running in another task, wait for
+        # it to finish.
+        logger.debug('waiting for initialization for {0}'.format(user))
+        while not \
+                kv.get('categorizers_initialization_finished', False):
+            time.sleep(0.5)
+        logger.debug('initialization finished, stopped waiting for {0}'
+                     .format(user))
+
+
 class Categorizer(Task):
     abstract = True
     name = 'Categorizer'
@@ -52,32 +89,6 @@ class Categorizer(Task):
             self._logger = get_task_logger(self.name)
         return self._logger
 
-    def initialize_categorizers(self, user):
-        """
-        Initialize all the categorizers recursively starting from
-        root categorizers.
-        If another task is running categorizers initialization, wait for it to
-        finish before continuing.
-        """
-        def initialize_rec(categorizer):
-            categorizer.initialize(user)
-            for cat in categorizer.children:
-                initialize_rec(cat)
-
-        if self.kv.get('categorizers_initialization_finished', False):
-            return
-
-        if self.kv.getset('categorizers_initialization_started', True, False):
-            # if categorizers initialization didn't start yet
-            for c in get_root_categorizers(self.app):
-                initialize_rec(c)
-            self.kv.categorizers_initialization_finished = True
-
-        else:
-            # otherwise, if initialization is running in another task, wait for
-            # it to finish.
-            while not self.kv.categorizers_initialization_finished:
-                time.sleep(0.5)
 
     def initialize(self, user):
         """
@@ -282,7 +293,7 @@ class LoopCategorizer(Categorizer):
         self.s.loop = True
 
         # launch categorizers initialization, if it hasn't been done already.
-        self.initialize_categorizers(user)
+        initialize_categorizers(self.app, user)
 
         self.pre_run(user)
 
