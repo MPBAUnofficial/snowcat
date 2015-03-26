@@ -56,7 +56,7 @@ def initialize_categorizers(celeryapp, user):
     if kv.get('categorizers_initialization_finished', False):
         return
 
-    if kv.getset('categorizers_initialization_started', True, False):
+    if not kv.getset('categorizers_initialization_started', True, False):
         # if categorizers initialization didn't start yet
         logger.debug('starting initialization for {0}'.format(user))
         for c in get_root_categorizers(celeryapp):
