@@ -5,6 +5,7 @@ import msgpack
 from utils.redis_utils import PersistentObject, SimpleKV
 from decorators import singleton_task
 from lockfile import LockFile
+from shutil import rmtree
 import time
 import os
 import redis
@@ -75,6 +76,32 @@ def initialize_categorizers(celeryapp, user):
                      .format(user))
 
 
+def cleanup_user(user, redis_client=None):
+    """ Delete data related to this user """
+    FINISHED_FLAG_TTL = 7 * 24 * 60 * 60  # 7 days
+
+    logger = get_task_logger('user_cleanup')
+    logger.debug('User cleanup started for user {0}'.format(user))
+
+    if redis_client is None:
+        redis_client = redis.StrictRedis()
+
+    keys = []
+    cursor, first = 0, True
+    while int(cursor) != 0 or first:
+        first = False
+        cursor, data = redis_client.scan(
+            cursor,
+            match='{0}:*'.format(user)
+        )
+        keys.extend([d for d in data if not d.endswith(':lock')])
+
+    if keys:
+        redis_client.delete(*keys)
+
+    redis_client.setex('{0}:finished'.format(user), FINISHED_FLAG_TTL, True)
+
+
 class Categorizer(Task):
     abstract = True
     name = 'Categorizer'
@@ -88,7 +115,6 @@ class Categorizer(Task):
         if not hasattr(self, '_logger'):
             self._logger = get_task_logger(self.name)
         return self._logger
-
 
     def initialize(self, user):
         """
@@ -155,6 +181,22 @@ class Categorizer(Task):
         if not self.is_running(user):
             self.delay(user, *args, **kwargs)
 
+    def flag_finished(self, user):
+        p = self.redis_client.pipeline()
+        k = '{0}:finished_tasks'.format(user)
+        p.sadd(k, self.name)
+        p.smembers(k)
+        finished_tasks = p.execute()[1]
+
+        all_tasks = map(lambda c: c.name, get_all_categorizers(self.app))
+        if not (set(all_tasks) - finished_tasks):
+            # all tasks have finished processing
+            cleanup_user(user)
+
+            if isinstance(self, LoopCategorizer):
+                # remove queues
+                rmtree(os.path.join(self.FSQUEUE_PREFIX, user))
+
     def cleanup(self, user):
         """ Delete data related to this categorizer """
         keys = []
@@ -169,6 +211,7 @@ class Categorizer(Task):
 
         if keys:
             self.redis_client.delete(*keys)
+        self.flag_finished(user)
 
 
 class LoopCategorizer(Categorizer):
