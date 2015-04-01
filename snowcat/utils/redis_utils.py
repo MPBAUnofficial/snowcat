@@ -209,7 +209,7 @@ class PollValue(object):
             return 1 -- already voted
         end
 
-        redis.call('HSET', poll_name, subscriber_name, cmsgpack.pack(value))
+        redis.call('HSET', poll_name, subscriber_name, value)
 
         local everyone_voted = true
         for i, v in ipairs(redis.call('HVALS', poll_name)) do
@@ -227,7 +227,8 @@ class PollValue(object):
         """
 
         script = self._get_script('vote', lua)
-        res = script(keys=[self.poll_name], args=[subscriber_name, vote])
+        res = script(keys=[self.poll_name],
+                     args=[subscriber_name, msgpack.dumps(vote)])
         if res == 0:
             raise self.SubscriberDoesNotExist(
                 '{0} did\'nt subscribe and therefore is not allowed to vote'
