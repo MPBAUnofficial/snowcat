@@ -1,5 +1,6 @@
 import redis
 import msgpack
+from copy import deepcopy
 
 
 class SimpleKV(object):
@@ -89,7 +90,7 @@ class PersistentObject(object):
         if default is None:
             default = {}
         object.__setattr__(self, 'namespace', namespace)
-        object.__setattr__(self, 'attrs', default)
+        object.__setattr__(self, 'attrs', deepcopy(default))
         object.__setattr__(self, 'redis_client', redis.StrictRedis())
 
         self.load()
