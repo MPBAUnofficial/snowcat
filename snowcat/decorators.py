@@ -26,19 +26,17 @@ def singleton_task(func):
 
     @wraps(func)
     def _inner(self, auth_id, *args, **kwargs):
-        # if the categorizer has already finished, return immediately
-        if redis_client.get('{0}:finished'.format(auth_id)):
-            return False
-
-        if redis_client\
-                .sismember('{0}:finished_tasks'.format(auth_id), self.name):
-            return False
-
         # try to acquire lock
         lock_key = self.gen_key(auth_id, 'lock')
 
         lock = redis_client.lock(lock_key, timeout=LOCK_EXPIRE)
         have_lock = lock.acquire(blocking=False)
+
+        # if the categorizer has already finished, return immediately
+        if redis_client.get('{0}:finished'.format(auth_id)):
+            if have_lock:
+                lock.release()
+            return False
 
         if not have_lock:
             return False

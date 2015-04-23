@@ -76,15 +76,19 @@ def initialize_categorizers(celeryapp, user):
                      .format(user))
 
 
-def cleanup_user(user, redis_client=None):
+def cleanup_user(auth_id, redis_client=None):  # todo: rename cleanup_all
     """ Delete data related to this user """
-    FINISHED_FLAG_TTL = 7 * 24 * 60 * 60  # 7 days
-
-    logger = get_task_logger('user_cleanup')
-    logger.debug('User cleanup started for user {0}'.format(user))
-
     if redis_client is None:
         redis_client = redis.StrictRedis()
+
+    FINISHED_FLAG_TTL = 7 * 24 * 60 * 60  # 7 days
+    redis_client.setex('{0}:finished'.format(auth_id), FINISHED_FLAG_TTL, True)
+
+    if bool(redis_client.get('snowcat_debug')):
+        return
+
+    logger = get_task_logger('user_cleanup')
+    logger.debug('User cleanup started for user {0}'.format(auth_id))
 
     keys = []
     cursor, first = 0, True
@@ -92,14 +96,17 @@ def cleanup_user(user, redis_client=None):
         first = False
         cursor, data = redis_client.scan(
             cursor,
-            match='{0}:*'.format(user)
+            match='{0}:*'.format(auth_id)
         )
-        keys.extend([d for d in data if not d.endswith(':lock')])
+
+        # delete all keys except those related to locks or finished flags.
+        keys.extend(
+            [d for d in data
+             if not d.endswith(':lock') and not d.endswith(':finished')]
+        )
 
     if keys:
         redis_client.delete(*keys)
-
-    redis_client.setex('{0}:finished'.format(user), FINISHED_FLAG_TTL, True)
 
 
 class Categorizer(Task):
@@ -115,6 +122,12 @@ class Categorizer(Task):
         if not hasattr(self, '_logger'):
             self._logger = get_task_logger(self.name)
         return self._logger
+
+    @property
+    def debug(self):
+        if not hasattr(self, '_debug'):
+            self._debug = bool(self.redis_client.get('snowcat_debug'))
+        return self._debug
 
     def initialize(self, user):
         """
@@ -193,12 +206,17 @@ class Categorizer(Task):
             # all tasks have finished processing
             cleanup_user(user)
 
-            if isinstance(self, LoopCategorizer):
+            if isinstance(self, LoopCategorizer) and not self.debug:
                 # remove queues
                 rmtree(os.path.join(self.FSQUEUE_PREFIX, user))
 
     def cleanup(self, user):
         """ Delete data related to this categorizer """
+        self.flag_finished(user)
+
+        if self.debug:
+            return
+
         keys = []
         cursor, first = 0, True
         while int(cursor) != 0 or first:
@@ -211,7 +229,6 @@ class Categorizer(Task):
 
         if keys:
             self.redis_client.delete(*keys)
-        self.flag_finished(user)
 
 
 class LoopCategorizer(Categorizer):
@@ -309,6 +326,9 @@ class LoopCategorizer(Categorizer):
 
     @singleton_task
     def run(self, user):
+        # launch categorizers initialization, if it hasn't been done already.
+        initialize_categorizers(self.app, auth_id)
+
         # if the categorizer is not active, just call his children
         if not self.is_active(user):
             if self.CALL_CHILDREN:
@@ -335,8 +355,6 @@ class LoopCategorizer(Categorizer):
         )
         self.s.loop = True
 
-        # launch categorizers initialization, if it hasn't been done already.
-        initialize_categorizers(self.app, user)
 
         self.pre_run(user)
 
