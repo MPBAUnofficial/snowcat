@@ -299,7 +299,13 @@ class LoopCategorizer(Categorizer):
         if os.path.exists(file_path):
             lock = LockFile(file_path)
             with lock, open(file_path, 'rb') as f:  # todo: lock timeout
-                self.s.cat__buf = msgpack.unpack(f)
+                # if file is empty, try again with the next one
+                val = msgpack.unpack(f)
+                if not val:
+                    return self._fill_buffer(auth_id, chunk_num+1)
+
+                # fill buffer
+                self.s.cat__buf = val
                 self.s.cat__buf_offset = self.s.idx
                 self.s.cat__chunk = chunk_num
                 return True
