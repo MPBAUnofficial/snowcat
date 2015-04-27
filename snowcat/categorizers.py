@@ -39,18 +39,18 @@ def get_categorizer_by_name(celeryapp, name):
     raise IndexError('{0} is not a valid categorizer name'.format(name))
 
 
-def initialize_categorizers(celeryapp, user):
+def initialize_categorizers(celeryapp, auth_id):
     """
     Initialize all the categorizers recursively starting from
     root categorizers.
     If another task is running categorizers initialization, wait for it to
     finish before continuing.
     """
-    kv = SimpleKV(user)
-    logger = get_task_logger('InitCategorizers<{0}>'.format(user))
+    kv = SimpleKV(auth_id)
+    logger = get_task_logger('InitCategorizers<{0}>'.format(auth_id))
 
     def initialize_rec(categorizer):
-        categorizer.initialize(user)
+        categorizer.initialize(auth_id)
         for cat in categorizer.children:
             initialize_rec(get_categorizer_by_name(celeryapp, cat))
 
@@ -59,21 +59,21 @@ def initialize_categorizers(celeryapp, user):
 
     if not kv.getset('categorizers_initialization_started', True, False):
         # if categorizers initialization didn't start yet
-        logger.debug('starting initialization for {0}'.format(user))
+        logger.debug('starting initialization for {0}'.format(auth_id))
         for c in get_root_categorizers(celeryapp):
             initialize_rec(c)
         kv.categorizers_initialization_finished = True
-        logger.debug('initialization finished for {0}'.format(user))
+        logger.debug('initialization finished for {0}'.format(auth_id))
 
     else:
         # otherwise, if initialization is running in another task, wait for
         # it to finish.
-        logger.debug('waiting for initialization for {0}'.format(user))
+        logger.debug('waiting for initialization for {0}'.format(auth_id))
         while not \
                 kv.get('categorizers_initialization_finished', False):
             time.sleep(0.5)
         logger.debug('initialization finished, stopped waiting for {0}'
-                     .format(user))
+                     .format(auth_id))
 
 
 def cleanup_user(auth_id, redis_client=None):  # todo: rename cleanup_all
@@ -251,7 +251,7 @@ class LoopCategorizer(Categorizer):
 
         return os.path.join(self.FSQUEUE_PREFIX, str(auth_id), queue, 'queue')
 
-    def is_active(self, user):
+    def is_active(self, auth_id):
         """
         Override this method if the categorizer will be active at some time only
         (i.e. the garbage collector which analyses the first n points only).
@@ -289,11 +289,11 @@ class LoopCategorizer(Categorizer):
             f.write(msgpack.dumps(data))
         return True
 
-    def _fill_buffer(self, user, chunk_num):
+    def _fill_buffer(self, auth_id, chunk_num):
         """ Fill the buffer with the data in <chunk_num>-th file.
         Return False if the file does not exist.
         """
-        file_path = os.path.join(self.queue_dir(user),
+        file_path = os.path.join(self.queue_dir(auth_id),
                                  str(chunk_num))
 
         if os.path.exists(file_path):
@@ -305,10 +305,10 @@ class LoopCategorizer(Categorizer):
                 return True
         return False
 
-    def bufget(self, user, _idx, rec=True):
+    def bufget(self, auth_id, _idx, rec=True):
         # fill buffer if it is empty
         if self.s.cat__buf_offset is None or self.s.cat__buf is None:
-            res = self._fill_buffer(user, self.s.cat__chunk + 1)
+            res = self._fill_buffer(auth_id, self.s.cat__chunk + 1)
             if not res or not rec:
                 return None
 
@@ -316,7 +316,7 @@ class LoopCategorizer(Categorizer):
         buf_idx = lambda: _idx - self.s.cat__buf_offset
 
         if buf_idx() >= len(self.s.cat__buf):
-            if not self._fill_buffer(user, self.s.cat__chunk + 1):
+            if not self._fill_buffer(auth_id, self.s.cat__chunk + 1):
                 return None
 
         if buf_idx() < 0:
@@ -325,14 +325,19 @@ class LoopCategorizer(Categorizer):
         return self.s.cat__buf[buf_idx()]
 
     @singleton_task
-    def run(self, user):
+    def run(self, auth_id):
+        super(LoopCategorizer, self).run(auth_id)
+
+        self.logger.debug('{0} <run> started on user {1} and on app {2}'
+                          .format(self.name, auth_id, str(self.app)))
+
         # launch categorizers initialization, if it hasn't been done already.
         initialize_categorizers(self.app, auth_id)
 
         # if the categorizer is not active, just call his children
-        if not self.is_active(user):
+        if not self.is_active(auth_id):
             if self.CALL_CHILDREN:
-                self.call_children(user)
+                self.call_children(auth_id)
             return
 
         # default data to put into persistent storage
@@ -346,62 +351,61 @@ class LoopCategorizer(Categorizer):
         }
         def_s.update(self.DEFAULT_S)
 
-        self.kv = SimpleKV(user)  # global keyvalue storage
+        self.kv = SimpleKV(auth_id)  # global keyvalue storage
 
         # local keyvalue storage
         self.s = PersistentObject(
-            self.gen_key(user),
+            self.gen_key(auth_id),
             default=def_s
         )
         self.s.loop = True
 
-
-        self.pre_run(user)
+        self.pre_run(auth_id)
 
         while self.s.loop:
-            item = self.bufget(user, self.s.idx)
+            item = self.bufget(auth_id, self.s.idx)
 
             time_since_last_save = time.time() - self.s.last_save
 
             if item is None or time_since_last_save > self.CHECKPOINT_FREQUENCY:
                 if self.CALL_CHILDREN:
-                    self.call_children(user)
+                    self.call_children(auth_id)
 
-                self.checkpoint(user)
+                self.checkpoint(auth_id)
                 self.s.last_save = time.time()
 
             if item is None:
                 break
 
-            self.process(user, item)
+            self.process(auth_id, item)
 
             self.s.idx += 1
 
         self.s.save()
 
-        self.post_run(user)
+        self.post_run(auth_id)
 
         # todo: a different, asynchronous task to check if new data is available
         #       since now there is still a little time frame where
         #       race conditions may occur.
         if self.s.loop:
             # check if new data has been added in the meantime
-            item = self.bufget(user, self.s.idx)
+            item = self.bufget(auth_id, self.s.idx)
             if item is not None:
-                self.apply_async(countdown=2, args=(user,))
+                self.apply_async(countdown=2, args=(auth_id,))
 
         self.s = None
 
     @abstractmethod
-    def process(self, user, item):
+    def process(self, auth_id, item):
         pass
 
     @abstractmethod
-    def checkpoint(self, user):
+    def checkpoint(self, auth_id):
         pass
 
-    def pre_run(self, user):
+    def pre_run(self, auth_id):
         pass
 
-    def post_run(self, user):
+    def post_run(self, auth_id):
         pass
