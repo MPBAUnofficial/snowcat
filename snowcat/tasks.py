@@ -1,4 +1,5 @@
 from celery import Task
+from celery.utils.log import get_task_logger
 import redis
 from categorizers import get_root_categorizers, LoopCategorizer
 import os
@@ -10,6 +11,9 @@ class BaseAddData(Task):
     FSQUEUE_PREFIX = '/tmp/snowcat/'
 
     r = redis.StrictRedis()
+
+    def __init__(self):
+        self.logger = get_task_logger(self.name)
 
     def gen_key(self, user, key=''):
         return '{0}:{1}{2}'.format(
