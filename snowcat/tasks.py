@@ -12,8 +12,11 @@ class BaseAddData(Task):
 
     r = redis.StrictRedis()
 
-    def __init__(self):
-        self.logger = get_task_logger(self.name)
+    @property
+    def logger(self):
+        if not hasattr(self, 'logger'):
+            self._logger = get_task_logger(self.name)
+        return self._logger
 
     def gen_key(self, user, key=''):
         return '{0}:{1}{2}'.format(
