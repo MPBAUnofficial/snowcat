@@ -43,8 +43,8 @@ def initialize_categorizers(celeryapp, auth_id):
     """
     Initialize all the categorizers recursively starting from
     root categorizers.
-    If another task is running categorizers initialization, wait for it to
-    finish before continuing.
+    If another task is running categorizers initialization, just wait for it to
+    finish and return.
     """
     kv = SimpleKV(auth_id)
     logger = get_task_logger('InitCategorizers<{0}>'.format(auth_id))
