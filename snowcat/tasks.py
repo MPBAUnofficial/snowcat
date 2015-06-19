@@ -25,7 +25,7 @@ class BaseAddData(Task):
             ':' + str(key) if key else ''
         )
 
-    def run(self, data, queue='Stream', **kwargs):
+    def run(self, data, snowcat_queue='Stream', **kwargs):
         root_categorizers = get_root_categorizers(self.app)
 
         user = data['user']
@@ -33,7 +33,7 @@ class BaseAddData(Task):
         LoopCategorizer.save_chunk_fs(
             data['data'] if isinstance(data['data'], (tuple, list))
             else [data['data']],
-            os.path.join(self.FSQUEUE_PREFIX, str(user), queue, 'queue')
+            os.path.join(self.FSQUEUE_PREFIX, str(user), snowcat_queue, 'queue')
         )
 
         for cat in root_categorizers:
