@@ -14,7 +14,7 @@ class SimpleKV(object):
     'bar'
     """
     def __init__(self, namespace):
-        self._obj_setattr('namespace', namespace)
+        self._obj_setattr('namespace', str(namespace))
         self._obj_setattr('redis_client', redis.StrictRedis())
 
     def __getattr__(self, item):
@@ -199,13 +199,14 @@ class PollValue(object):
         local subscriber_name = ARGV[1]
         local value = ARGV[2]
 
-        local val = redis.call('HGET', poll_name, subscriber_name)
-        if val == nil then
-            return 0 -- voter didn't subscribe
+        if not redis.call('HEXISTS', poll_name, subscriber_name) then
+            return 0 -- voter didn't subscribe or nulled the vote
         end
 
-        val = cmsgpack.unpack(val)
-        if val ~= nil then
+        local val = redis.call('HGET', poll_name, subscriber_name)
+
+        local parsed_val = cmsgpack.unpack(val)
+        if parsed_val ~= nil then
             return 1 -- already voted
         end
 
@@ -242,7 +243,7 @@ class PollValue(object):
         local subscriber_name = ARGV[1]
 
         local val = redis.call('HGET', poll_name, subscriber_name)
-        if val == nil then
+        if not val then
             return 0 -- voter didn't subscribe
         end
 
@@ -270,11 +271,6 @@ class PollValue(object):
 
         script = self._get_script('null_vote', lua)
         res = script(keys=[self.poll_name], args=[subscriber_name])
-        if res == 0:
-            raise self.SubscriberDoesNotExist(
-                '{0} did\'nt subscribe and therefore is not allowed to vote'
-                .format(subscriber_name)
-            )
         return res
 
     @property
