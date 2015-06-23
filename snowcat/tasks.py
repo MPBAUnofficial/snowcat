@@ -1,6 +1,7 @@
 from celery import Task
 from celery.utils.log import get_task_logger
 import redis
+from shutil import rmtree
 from categorizers import get_root_categorizers, LoopCategorizer
 import os
 
@@ -49,3 +50,46 @@ class BaseAddData(Task):
 
     def delay(self, *args, **kwargs):
         return self.apply_async(args, kwargs)
+
+
+class FinalizeStream(Task):  # todo: rename class
+    """ Task called when all categorizers have finished processing a stream.
+    """
+    name = 'BaseStreamFinalizer'
+
+    def run(self, auth_id, redis_client=None, debug=False,
+            fs_prefix='/tmp/snowcat'):
+        print 'finalizing ', auth_id  # todo: remove me
+        if redis_client is None:
+            redis_client = redis.StrictRedis()
+
+        FINISHED_FLAG_TTL = 7 * 24 * 60 * 60
+        redis_client.setex('{0}:finished'.format(auth_id), FINISHED_FLAG_TTL, True)
+
+        if bool(redis_client.get('snowcat_debug')):
+            return
+
+        logger = get_task_logger('stream_finalizer')
+        logger.debug('Stream finalizer started for user {0}'.format(auth_id))
+
+        keys = []
+        cursor, first = 0, True
+        while int(cursor) != 0 or first:
+           first = False
+           cursor, data = redis_client.scan(
+               cursor,
+               match='{0}:*'.format(auth_id)
+           )
+
+           # delete all keys except those related to locks or finished flags.
+           keys.extend(
+               [d for d in data
+                if not d.endswith(':lock') and not d.endswith(':finished')]
+           )
+
+        if keys:
+           redis_client.delete(*keys)
+
+        if not debug:
+           # remove queues
+           rmtree(os.path.join(fs_prefix, auth_id))

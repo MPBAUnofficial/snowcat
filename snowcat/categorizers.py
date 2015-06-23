@@ -1,14 +1,33 @@
 from abc import abstractmethod
 from celery import Task
+from celery.canvas import chain
 from celery.utils.log import get_task_logger
 import msgpack
 from utils.redis_utils import PersistentObject, SimpleKV
 from decorators import singleton_task
 from lockfile import LockFile
-from shutil import rmtree
 import time
 import os
 import redis
+
+
+def get_stream_finalizers(celeryapp):
+    from tasks import FinalizeStream  # avoid circular import
+
+    # todo: define order of execution when multiple streamfinalizers
+    # have been defined
+
+    # if one or more streamfinalizers have been defined, ignore the default one
+    # otherwise, use the default one only
+    tasks = [t for t in celeryapp.tasks.itervalues()
+             if isinstance(t, FinalizeStream)]
+    if len(set(tasks)) == 1:
+        return tasks
+
+    tasks = [t for t in tasks if not t.name == FinalizeStream.name]
+
+    print 'stream finalizers: {0}'.format(tasks)
+    return tasks
 
 
 def get_all_categorizers(celeryapp):
@@ -76,39 +95,8 @@ def initialize_categorizers(celeryapp, auth_id):
                      .format(auth_id))
 
 
-def cleanup_user(auth_id, redis_client=None):  # todo: rename cleanup_all
-    """ Delete data related to this user """
-    if redis_client is None:
-        redis_client = redis.StrictRedis()
-
-    FINISHED_FLAG_TTL = 7 * 24 * 60 * 60  # 7 days
-    redis_client.setex('{0}:finished'.format(auth_id), FINISHED_FLAG_TTL, True)
-
-    if bool(redis_client.get('snowcat_debug')):
-        return
-
-    logger = get_task_logger('user_cleanup')
-    logger.debug('User cleanup started for user {0}'.format(auth_id))
-
-    keys = []
-    cursor, first = 0, True
-    while int(cursor) != 0 or first:
-        first = False
-        cursor, data = redis_client.scan(
-            cursor,
-            match='{0}:*'.format(auth_id)
-        )
-
-        # delete all keys except those related to locks or finished flags.
-        keys.extend(
-            [d for d in data
-             if not d.endswith(':lock') and not d.endswith(':finished')]
-        )
-
-    if keys:
-        redis_client.delete(*keys)
-
-
+# TODO: merge Categorizer and LoopCategorizer
+#       (or make it meaningful to keep them separated)
 class Categorizer(Task):
     abstract = True
     name = 'Categorizer'
@@ -180,7 +168,7 @@ class Categorizer(Task):
 
     @singleton_task
     def run(self, user):
-        pass
+        super(Categorizer, self).run()
 
     def is_running(self, user):
         """ Return True if the categorizer is running """
@@ -194,26 +182,35 @@ class Categorizer(Task):
         if not self.is_running(user):
             self.delay(user, *args, **kwargs)
 
-    def flag_finished(self, user):
+    def finalize(self, user, cleanup=True):
+        """ Flag this categorizer as finished for this stream.
+        If all the categorizers have finished processing this stream, call the
+        stream finalizer task.
+        :param user: Authentication id.
+        :param cleanup: if cleanup is True and all the tasks have finished,
+         cleanup. If False the cleanup has to be managed expressly.
+        :return: True if all the other tasks finished, False otherwise.
+        """
         p = self.redis_client.pipeline()
         k = '{0}:finished_tasks'.format(user)
         p.sadd(k, self.name)
         p.smembers(k)
         finished_tasks = p.execute()[1]
 
-        all_tasks = map(lambda c: c.name, get_all_categorizers(self.app))
-        if not (set(all_tasks) - finished_tasks):
-            # all tasks have finished processing
-            cleanup_user(user)
+        if cleanup:
+            self.cleanup(user)
 
-            if isinstance(self, LoopCategorizer) and not self.debug:
-                # remove queues
-                rmtree(os.path.join(self.FSQUEUE_PREFIX, user))
+        all_tasks = map(lambda c: c.name, get_all_categorizers(self.app))
+        all_finished = not (set(all_tasks) - finished_tasks)
+        self.logger.debug("All categorizers have finished processing stream {0}"
+                          .format(user))
+        if all_finished and cleanup:  # all tasks have finished processing
+            self.finalize_stream(user)
+
+        return all_finished
 
     def cleanup(self, user):
         """ Delete data related to this categorizer """
-        self.flag_finished(user)
-
         if self.debug:
             return
 
@@ -415,3 +412,13 @@ class LoopCategorizer(Categorizer):
 
     def post_run(self, auth_id):
         pass
+
+    def finalize_stream(self, auth_id):
+        """ Launch the stream finalizer tasks for this stream.
+        """
+        self.logger.debug("Finalizing stream {0}".format(auth_id))
+        stream_finalizers = get_stream_finalizers(self.app)
+        sf_tasks = chain(*[t.si(auth_id, debug=self.debug,
+                                fs_prefix=self.FSQUEUE_PREFIX)
+                           for t in stream_finalizers])
+        sf_tasks.delay()
