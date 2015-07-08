@@ -57,9 +57,15 @@ class FinalizeStream(Task):  # todo: rename class
     """
     name = 'BaseStreamFinalizer'
 
+    @property
+    def logger(self):
+        if not hasattr(self, 'logger'):
+            self._logger = get_task_logger(self.name)
+        return self._logger
+
     def run(self, auth_id, redis_client=None, debug=False,
             fs_prefix='/tmp/snowcat'):
-        print 'finalizing ', auth_id  # todo: remove me
+        self.logger.info('finalizing {0}'.format(auth_id))
         if redis_client is None:
             redis_client = redis.StrictRedis()
 

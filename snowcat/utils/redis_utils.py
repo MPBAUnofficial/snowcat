@@ -8,7 +8,7 @@ class SimpleKV(object):
     Values are serialized as messagepack.
     Attributes can be then accessed like object attrs, i.e.:
 
-    >>> s = SimpleKV('a')
+    >>> s = SimpleKV('myNamespace')
     >>> s.foo = 'bar'
     >>> s.foo
     'bar'
@@ -28,10 +28,10 @@ class SimpleKV(object):
         return self.redis_client.hset(self._redis_ns, key, msgpack.dumps(value))
 
     def __repr__(self):
-        return repr(self.getall())
+        return '<SimpleKV "{0}">'.format(self.namespace)
 
     def __str__(self):
-        return str(self.getall())
+        return self.__repr__()
 
     def _obj_setattr(self, name, value):
         object.__setattr__(self, name, value)

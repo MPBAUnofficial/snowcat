@@ -26,7 +26,6 @@ def get_stream_finalizers(celeryapp):
 
     tasks = [t for t in tasks if not t.name == FinalizeStream.name]
 
-    print 'stream finalizers: {0}'.format(tasks)
     return tasks
 
 
