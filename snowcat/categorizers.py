@@ -177,6 +177,14 @@ class Categorizer(Task):
             return False
         return True
 
+    def has_finished(self, auth_id, categorizer=None):
+        if self.redis_client.exists('{0}:finished'.format(auth_id)):
+            return True
+
+        if categorizer is not None:
+            return self.redis_client.sismember(
+                '{0}:finished_tasks'.format(auth_id), categorizer)
+
     def run_if_not_already_running(self, user, *args, **kwargs):
         if not self.is_running(user):
             self.delay(user, *args, **kwargs)
