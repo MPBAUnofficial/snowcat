@@ -342,6 +342,11 @@ class LoopCategorizer(Categorizer):
                 self.call_children(auth_id)
             return
 
+        # if the categorizer has already processed its stream, don't start it
+        if self.has_finished(auth_id, self.name):
+            self.logger.debug('Already finished, stopping now.')
+            return
+
         # default data to put into persistent storage
         def_s = {
             'idx': 0,
