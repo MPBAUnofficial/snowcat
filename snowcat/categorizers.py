@@ -141,6 +141,14 @@ class Categorizer(Task):
         """
         return '{0}:{1}'.format(user, key)
 
+    def is_active(self, auth_id):
+        """
+        Override this method if the categorizer will be active at some time only
+        (i.e. the garbage collector which analyses the first n points only).
+        If False is returned, the categorizer will just call its children.
+        """
+        return True
+
     @property
     def children(self):
         """ Return list with the names of the children of the categorizer """
@@ -234,6 +242,16 @@ class Categorizer(Task):
         if keys:
             self.redis_client.delete(*keys)
 
+    def finalize_stream(self, auth_id):
+        """ Launch the stream finalizer tasks for this stream.
+        """
+        self.logger.debug("Finalizing stream {0}".format(auth_id))
+        stream_finalizers = get_stream_finalizers(self.app)
+        sf_tasks = chain(*[t.si(auth_id, debug=self.debug,
+                                fs_prefix=self.FSQUEUE_PREFIX)
+                           for t in stream_finalizers])
+        sf_tasks.delay()
+
 
 class LoopCategorizer(Categorizer):
     abstract = True
@@ -255,21 +273,12 @@ class LoopCategorizer(Categorizer):
 
         return os.path.join(self.FSQUEUE_PREFIX, str(auth_id), queue, 'queue')
 
-    def is_active(self, auth_id):
-        """
-        Override this method if the categorizer will be active at some time only
-        (i.e. the garbage collector which analyses the first n points only).
-        If False is returned, the categorizer will just call its children.
-        """
-        return True
-
     @staticmethod
     def save_chunk_fs(data, queue_dir):
         """ Save a chunk of data on the file system.
         Data will be serialized as messagepack.
         """
         # todo: give option to set index manually
-        # todo: clean the directory after a bit of time
         try:
             ls = os.listdir(queue_dir)
         except OSError:
@@ -289,7 +298,7 @@ class LoopCategorizer(Categorizer):
 
         file_path = os.path.join(queue_dir, str(mx + 1))
         lock = LockFile(file_path)
-        with lock, open(file_path, 'wb') as f:  # todo: lock timeout?
+        with lock, open(file_path, 'wb') as f:
             f.write(msgpack.dumps(data))
         return True
 
@@ -424,13 +433,3 @@ class LoopCategorizer(Categorizer):
 
     def post_run(self, auth_id):
         pass
-
-    def finalize_stream(self, auth_id):
-        """ Launch the stream finalizer tasks for this stream.
-        """
-        self.logger.debug("Finalizing stream {0}".format(auth_id))
-        stream_finalizers = get_stream_finalizers(self.app)
-        sf_tasks = chain(*[t.si(auth_id, debug=self.debug,
-                                fs_prefix=self.FSQUEUE_PREFIX)
-                           for t in stream_finalizers])
-        sf_tasks.delay()
